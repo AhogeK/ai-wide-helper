@@ -247,7 +247,7 @@
         span.className = MODEL_LABEL_CLASS;
         span.textContent = label;
         const container = button.closest('span') || button;
-        container.insertAdjacentElement('afterend', span);
+        container.after(span);
       });
     }
 
@@ -261,13 +261,13 @@
         });
       }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {childList: true, subtree: true});
   }
 
   // ============================================================
   // 5. Main Injection Logic (Updated for Gemini Chat Detection)
   // ============================================================
-  const host = window.location.hostname;
+  const host = globalThis.location.hostname;
   const styleElement = document.createElement('style');
   styleElement.id = 'ai-widescreen-style';
 
@@ -280,7 +280,7 @@
   } else if (host.includes('gemini.google.com')) {
     // Define a function to check if we are in a valid chat URL
     const isGeminiChat = () => {
-      const path = window.location.pathname;
+      const path = globalThis.location.pathname;
       // Regex Explanation:
       // 1. /\/app\/[\w-]+/: Matches /app/ followed by ID (e.g., /app/123-abc)
       // 2. /\/gem\/[\w-]+\/[\w-]+/: Matches /gem/model-id/chat-id
@@ -298,14 +298,10 @@
         // If in chat, apply the CSS if it's not already applied
         if (styleElement.textContent !== geminiCSS) {
           styleElement.textContent = geminiCSS;
-          // console.log('宽屏模式: 已启用 (Chat Detected)');
         }
       } else {
         // If not in chat (home page, settings, etc.), clear the CSS
-        if (styleElement.textContent !== '') {
-          styleElement.textContent = '';
-          // console.log('宽屏模式: 已禁用 (Home/Menu)');
-        }
+        styleElement.textContent = '';
       }
     };
 
@@ -327,16 +323,43 @@
       }
     });
 
-    observer.observe(document.head, { childList: true });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.head, {childList: true});
+    observer.observe(document.body, {childList: true, subtree: true});
 
     // Listen to history events just in case
-    window.addEventListener('popstate', updateGeminiStyles);
+    globalThis.addEventListener('popstate', updateGeminiStyles);
   }
 
-// ============================================================
-// 6. Perplexity Answer Rules Feature
-// ============================================================
+  /**
+   * Normalizes rule strings by removing redundant headers/separators
+   * and wrapping the content in a standardized format.
+   * * @param {string} rules - The raw rule string to be processed.
+   * @returns {string} The formatted rule string or an empty string if input is invalid.
+   */
+  function normalizeRules(rules) {
+    // Use optional chaining and trim check to handle null/undefined/empty inputs early
+    if (!rules?.trim()) {
+      return '';
+    }
+
+    // REFACTORING NOTE:
+    // Combined redundant replacements into a single regex flow or clear sequence
+    // to improve maintainability.
+    let normalized = rules
+        .replace(/^回答规则\s*\n?---\s*\n?/m, '')
+        .replace(/\n?---\s*$/m, '')
+        .trim();
+
+    if (!normalized) {
+      return '';
+    }
+
+    return `---\n回答规则：\n${normalized}\n---`;
+  }
+
+  // ============================================================
+  // 6. Perplexity Answer Rules Feature
+  // ============================================================
   function setupAnswerRules() {
     const RULES_STORAGE_PREFIX = 'pplx_answer_rules_';
     const BUTTON_CLASS = 'pplx-rules-button';
@@ -346,7 +369,7 @@
     function getCurrentSpaceId() {
       // 方法1: 从 URL 中获取
       // 修复：使用非贪婪匹配 .*? 或匹配最后一个 - 后的内容
-      const urlMatch = window.location.pathname.match(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/);
+      const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
       if (urlMatch) {
         return urlMatch[1];
       }
@@ -356,7 +379,7 @@
       if (spaceLink) {
         const href = spaceLink.getAttribute('href');
         // 同样修复 DOM 查找的正则
-        const hrefMatch = href.match(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/);
+        const hrefMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(href);
         if (hrefMatch) {
           return hrefMatch[1];
         }
@@ -370,27 +393,6 @@
     function getStorageKey() {
       const spaceId = getCurrentSpaceId();
       return `${RULES_STORAGE_PREFIX}${spaceId}`;
-    }
-
-    // 规范化规则格式
-    function normalizeRules(rules) {
-      if (!rules || !rules.trim()) {
-        return '';
-      }
-
-      // 移除可能已存在的"回答规则"和分隔线
-      let normalized = rules
-          .replace(/^回答规则\s*\n?---\s*\n?/m, '')
-          .replace(/\n?---\s*$/m, '')
-          .trim();
-
-      // 如果内容为空，返回空字符串
-      if (!normalized) {
-        return '';
-      }
-
-      // 添加标准格式
-      return `---\n回答规则：\n${normalized}\n---`;
     }
 
     // 获取规则（返回标准格式）
@@ -431,62 +433,114 @@
       }
     }
 
-// === 立即安装拦截器 ===
+    // === 立即安装拦截器 ===
     (function installInterceptor() {
-      const originalFetch = window.fetch;
+      const originalFetch = globalThis.fetch;
 
-      window.fetch = function(...args) {
-        let [url, options] = args;
-
-        let urlString = '';
+      /**
+       * Extracts a string URL from various possible fetch input types.
+       * Supports string, URL object, and Request object.
+       * * @param {RequestInfo|URL} url - The input passed to fetch.
+       * @returns {string} The resolved URL string or an empty string if invalid.
+       */
+      function parseUrl(url) {
+        // 1. Handle string directly
         if (typeof url === 'string') {
-          urlString = url;
-        } else if (url && url.href) {
-          urlString = url.href;
-        } else if (url && url.toString) {
-          urlString = url.toString();
+          return url;
         }
 
-        if (options && options.method === 'POST' &&
-            urlString.includes('perplexity_ask') &&
-            options.body && typeof options.body === 'string') {
-
-          try {
-            const bodyObj = JSON.parse(options.body);
-
-            // ▼▼▼▼▼▼▼▼▼▼▼▼ 在这里添加这行代码 ▼▼▼▼▼▼▼▼▼▼▼▼
-            // 强制修改 source 参数
-            bodyObj.params.source = 'ios';// 可以改为 'android', 'ios', 或者 'mobile'
-            // ▲▲▲▲▲▲▲▲▲▲▲▲ 添加结束 ▲▲▲▲▲▲▲▲▲▲▲▲
-
-            if (bodyObj.query_str) {
-              const rules = getRules(); // 获取带格式的规则
-
-              if (rules) {
-                // 移除旧规则（如果存在）
-                // 匹配格式：---\n回答规则：\n...内容...\n---
-                const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
-
-                // 清理 query_str 中的旧规则
-                let cleanedQueryStr = bodyObj.query_str.replace(rulePattern, '').trim();
-
-                // 添加新规则到底部
-                bodyObj.query_str = `${cleanedQueryStr}\n\n${rules}`;
-
-                // 同时处理 params.dsl_query
-                if (bodyObj.params && bodyObj.params.dsl_query) {
-                  let cleanedDslQuery = bodyObj.params.dsl_query.replace(rulePattern, '').trim();
-                  bodyObj.params.dsl_query = `${cleanedDslQuery}\n\n${rules}`;
-                }
-
-                options.body = JSON.stringify(bodyObj);
-
-                console.log('✅ 规则已更新并注入到查询底部');
-              }
-            }
-          } catch (e) {
-            console.error('❌ 拦截器处理失败:', e);
+        // 2. Handle URL object or Request object (which both have an 'url' property or 'href')
+        // Request objects in fetch have a 'url' property, while URL objects have 'href'.
+        if (url && typeof url === 'object') {
+          if (url instanceof URL || url.href) {
+            return url.href;
           }
+          if (url instanceof Request || url.url) {
+            return url.url;
+          }
+        }
+
+        // 3. Fallback: only stringify if it's not a generic object
+        // Avoids "[object Object]" by returning empty string for plain objects
+        return '';
+      }
+
+      /**
+       * Internal helper to remove existing rules and append new ones.
+       * Extracted to outer scope to reduce nesting depth and improve testability.
+       * @param {string} text - The source text to modify.
+       * @param {RegExp} pattern - The regex pattern for old rules.
+       * @param {string} newRules - The new rules to append.
+       * @returns {string}
+       */
+      function formatFieldWithRules(text, pattern, newRules) {
+        const cleaned = (text || '').replaceAll(pattern, '').trim();
+        return `${cleaned}\n\n${newRules}`.trim();
+      }
+
+      /**
+       * Handles the logic of cleaning and injecting rules into the request body.
+       * @param {Object} bodyObj - The parsed JSON body of the request.
+       * @param {string} rules - The formatted rules to inject.
+       * @returns {Object} The modified body object.
+       */
+      function injectRulesIntoBody(bodyObj, rules) {
+        // Define pattern once in the functional scope
+        const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+
+        if (bodyObj.query_str) {
+          bodyObj.query_str = formatFieldWithRules(bodyObj.query_str, rulePattern, rules);
+        }
+
+        // Use optional chaining carefully to avoid deep nested if-statements
+        if (bodyObj.params?.dsl_query) {
+          bodyObj.params.dsl_query = formatFieldWithRules(
+              bodyObj.params.dsl_query,
+              rulePattern,
+              rules
+          );
+        }
+
+        return bodyObj;
+      }
+
+      /**
+       * Optimized fetch interceptor logic with reduced cognitive complexity.
+       */
+      globalThis.fetch = function (...args) {
+        const [url, options] = args;
+        const urlString = parseUrl(url);
+        // If urlString is empty, it means the input was unparseable or invalid
+        if (!urlString) {
+          return originalFetch.apply(this, args);
+        }
+
+        // 1. Early exit for non-target requests
+        const isPostPerplexity = options?.method === 'POST' &&
+            urlString.includes('perplexity_ask') &&
+            typeof options.body === 'string';
+
+        if (!isPostPerplexity) {
+          return originalFetch.apply(this, args);
+        }
+
+        try {
+          const bodyObj = JSON.parse(options.body);
+          const rules = typeof getRules === 'function' ? getRules() : null;
+
+          // 2. Modify mandatory parameters
+          if (bodyObj.params) {
+            bodyObj.params.source = 'ios';
+          }
+
+          // 3. Inject rules if available
+          if (rules && (bodyObj.query_str || bodyObj.params?.dsl_query)) {
+            injectRulesIntoBody(bodyObj, rules);
+            options.body = JSON.stringify(bodyObj);
+            console.log('✅ 规则已更新并注入到查询底部');
+          }
+        } catch (e) {
+          console.error('❌ 拦截器处理失败:', e);
         }
 
         return originalFetch.apply(this, args);
@@ -738,7 +792,7 @@
       button.className = BUTTON_CLASS;
       button.type = 'button';
       button.setAttribute('aria-label', '设置回答规则');
-      button.setAttribute('data-state', 'closed');
+      button.dataset.state = 'closed';
 
       button.innerHTML = `
       <div class="flex items-center min-w-0 gap-two justify-center">
@@ -757,11 +811,11 @@
       };
 
       const attachButton = toolbarContainer.querySelector('[data-testid="attach-files-button"]');
-      if (attachButton && attachButton.parentElement) {
+      if (attachButton?.parentElement) {
         attachButton.parentElement.parentElement.insertBefore(button, attachButton.parentElement);
       } else {
         const firstChild = toolbarContainer.firstElementChild;
-        if (firstChild && firstChild.nextElementSibling) {
+        if (firstChild?.nextElementSibling) {
           toolbarContainer.insertBefore(button, firstChild.nextElementSibling);
         }
       }
@@ -790,13 +844,13 @@
       }
     };
 
-    new MutationObserver(checkChanges).observe(document, { subtree: true, childList: true });
+    new MutationObserver(checkChanges).observe(document, {subtree: true, childList: true});
 
     // 监听 DOM 变化以重新添加按钮
     const observer = new MutationObserver(() => {
       addRulesButton();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {childList: true, subtree: true});
   }
 
 
