@@ -19,7 +19,7 @@
 
   // ============================================================
   // 0. 统一全局网络拦截器 (Unified Global Network Interceptor)
-  // 优化：降低认知复杂度，完善异常捕获，同时支持 PPLX 和 Gemini
+  // 优化：修复 Perplexity Space ID 识别问题，统一规则格式
   // ============================================================
   (function installNetworkInterceptor() {
     console.log('[AI Widescreen] Initializing Unified Network Interceptor...');
@@ -28,10 +28,30 @@
     const originalXhrOpen = XMLHttpRequest.prototype.open;
     const originalXhrSend = XMLHttpRequest.prototype.send;
 
-    // --- 通用工具 ---
-    function getSpaceIdFromUrl() {
+    // --- 工具函数 ---
+
+    // [关键修复] 获取 Perplexity Space ID (增加 DOM 兜底)
+    function getPerplexitySpaceId() {
+      // 1. 尝试从 URL 获取
       const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
       if (urlMatch) return urlMatch[1];
+
+      // 2. [新增] 尝试从 DOM 获取 (解决 URL 未更新或处于搜索视图时的问题)
+      // 仅在 Perplexity 域名下执行 DOM 操作以策安全
+      if (globalThis.location.hostname.includes('perplexity.ai')) {
+        try {
+          // 查找指向 Space 的链接（通常在侧边栏或顶部）
+          const spaceLink = document.querySelector('a[href*="/spaces/"]');
+          if (spaceLink) {
+            const href = spaceLink.getAttribute('href');
+            const hrefMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(href);
+            if (hrefMatch) return hrefMatch[1];
+          }
+        } catch (e) {
+          console.debug('[perplexity] Failed to detect Space ID from DOM fallback.', e);
+        }
+      }
+
       return 'default';
     }
 
@@ -41,7 +61,7 @@
       return input?.href || '';
     }
 
-    // 统一的格式化函数
+    // [统一格式] 两个平台共用此格式
     function formatRules(rules) {
       return `\n\n---\n回答规则：\n${rules.trim()}\n---`;
     }
@@ -50,12 +70,14 @@
     function getPerplexityRules() {
       if (!globalThis.location.hostname.includes('perplexity.ai')) return null;
       try {
-        const spaceId = getSpaceIdFromUrl();
+        const spaceId = getPerplexitySpaceId(); // 使用增强版的 ID 获取函数
         const key = `pplx_answer_rules_${spaceId}`;
         const raw = localStorage.getItem(key);
         if (!raw?.trim()) return null;
 
+        // 清理存储中可能存在的旧标记，确保存储的是纯文本
         let content = raw.replace(/^回答规则\s*\n?---\s*\n?/m, '').replace(/\n?---\s*$/m, '').trim();
+        // 返回统一格式
         return formatRules(content);
       } catch (e) {
         console.warn('[AI Widescreen] Error reading PPLX rules:', e);
@@ -64,18 +86,25 @@
     }
 
     function injectPerplexityBody(bodyObj, formattedRules) {
-      const replaceField = (text) => {
-        const pattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
-        const cleaned = (text || '').replaceAll(pattern, '').trim();
+      // Perplexity 策略：清理旧规则 -> 追加新规则
+      // 使用正则精准匹配旧的规则块
+      const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+
+      const applyRules = (text) => {
+        if (!text) return text;
+        // 1. 清理旧规则（防止用户编辑问题后重复堆叠）
+        const cleaned = text.replaceAll(rulePattern, '').trim();
+        // 2. 追加新规则
         return `${cleaned}${formattedRules}`;
       };
 
       if (bodyObj.query_str) {
-        bodyObj.query_str = replaceField(bodyObj.query_str);
+        bodyObj.query_str = applyRules(bodyObj.query_str);
       }
       if (bodyObj.params?.dsl_query) {
-        bodyObj.params.dsl_query = replaceField(bodyObj.params.dsl_query);
+        bodyObj.params.dsl_query = applyRules(bodyObj.params.dsl_query);
       }
+      // [保留] 强制 source 参数
       if (bodyObj.params) {
         bodyObj.params.source = 'ios';
       }
@@ -96,6 +125,7 @@
           rawRules = localStorage.getItem('gemini_answer_rules_default') || '';
         }
         if (rawRules.trim()) {
+          // 返回统一格式
           return formatRules(rawRules);
         }
       } catch (e) {
@@ -104,8 +134,8 @@
       return null;
     }
 
-    function injectGeminiFreq(freqStr, rules) {
-      if (!rules) return null;
+    function injectGeminiFreq(freqStr, formattedRules) {
+      if (!formattedRules) return null;
       try {
         const outer = JSON.parse(freqStr);
         if (!Array.isArray(outer) || !outer[1] || typeof outer[1] !== 'string') return null;
@@ -116,12 +146,11 @@
         if (Array.isArray(inner) && inner.length > 0 && Array.isArray(inner[0])) {
           const potentialPrompt = inner[0][0];
           if (typeof potentialPrompt === 'string') {
-            // [修改重点]：现在使用正则清理旧规则，实现“清理+覆盖”，与 Perplexity 逻辑一致
+            // Gemini 策略：清理旧规则 -> 覆盖新规则
             const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
             const cleanPrompt = potentialPrompt.replaceAll(rulePattern, '').trim();
 
-            // 无论之前有没有旧规则，都拼接最新的 rules
-            inner[0][0] = cleanPrompt + rules;
+            inner[0][0] = cleanPrompt + formattedRules;
             modified = true;
           }
         }
@@ -169,7 +198,9 @@
       return null;
     }
 
-    // --- 逻辑拆分：Gemini Fetch 处理 ---
+    // --- 路由分发 ---
+
+    // Gemini Fetch 处理
     function handleGeminiFetch(urlStr, init) {
       if (!urlStr.includes('batchexecute') && !urlStr.includes('StreamGenerate')) return false;
 
@@ -182,19 +213,26 @@
       return false;
     }
 
-    // --- 逻辑拆分：Perplexity Fetch 处理 ---
+    // Perplexity Fetch 处理
     function handlePerplexityFetch(urlStr, init) {
       if (!urlStr.includes('perplexity_ask')) return false;
       if (typeof init.body !== 'string') return false;
 
       try {
         const rules = getPerplexityRules();
-        if (rules) {
+        if (rules) { // 即使 rules 为空，我们也要进入注入逻辑以确保 source 参数被修改
           let bodyObj = JSON.parse(init.body);
-          bodyObj = injectPerplexityBody(bodyObj, rules);
+          bodyObj = injectPerplexityBody(bodyObj, rules); // rules 包含格式化内容
           init.body = JSON.stringify(bodyObj);
           console.log('[AI Widescreen] Perplexity Rules Injected');
           return true;
+        } else {
+          // 即使没有规则，也要修改 source 参数
+          let bodyObj = JSON.parse(init.body);
+          if (bodyObj.params) {
+            bodyObj.params.source = 'ios';
+            init.body = JSON.stringify(bodyObj);
+          }
         }
       } catch (e) {
         console.warn('[AI Widescreen] PPLX Injection Failed:', e);
@@ -215,7 +253,7 @@
       return originalFetch.call(this, input, init);
     };
 
-    // --- 统一 XHR 拦截 ---
+    // --- 统一 XHR 拦截 (主要针对 Gemini) ---
     XMLHttpRequest.prototype.open = function (method, url) {
       this._reqUrl = (typeof url === 'string' ? url : url?.toString() || '');
       return originalXhrOpen.apply(this, arguments);
