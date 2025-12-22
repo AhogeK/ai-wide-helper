@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏
+// @version      1.1.0
+// @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
