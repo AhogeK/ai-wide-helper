@@ -18,6 +18,225 @@
   const USER_BUBBLE_WIDTH = '760px';
 
   // ============================================================
+  // 0. 统一全局网络拦截器 (Unified Global Network Interceptor)
+  // 优化：降低认知复杂度，完善异常捕获，同时支持 PPLX 和 Gemini
+  // ============================================================
+  (function installNetworkInterceptor() {
+    console.log('[AI Widescreen] Initializing Unified Network Interceptor...');
+
+    const originalFetch = globalThis.fetch;
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+
+    // --- 通用工具 ---
+    function getSpaceIdFromUrl() {
+      const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
+      if (urlMatch) return urlMatch[1];
+      return 'default';
+    }
+
+    function getFetchUrl(input) {
+      if (typeof input === 'string') return input;
+      if (input instanceof Request) return input.url;
+      return input?.href || '';
+    }
+
+    // 统一的格式化函数
+    function formatRules(rules) {
+      return `\n\n---\n回答规则：\n${rules.trim()}\n---`;
+    }
+
+    // --- Perplexity 逻辑区域 ---
+    function getPerplexityRules() {
+      if (!globalThis.location.hostname.includes('perplexity.ai')) return null;
+      try {
+        const spaceId = getSpaceIdFromUrl();
+        const key = `pplx_answer_rules_${spaceId}`;
+        const raw = localStorage.getItem(key);
+        if (!raw?.trim()) return null;
+
+        let content = raw.replace(/^回答规则\s*\n?---\s*\n?/m, '').replace(/\n?---\s*$/m, '').trim();
+        return formatRules(content);
+      } catch (e) {
+        console.warn('[AI Widescreen] Error reading PPLX rules:', e);
+        return null;
+      }
+    }
+
+    function injectPerplexityBody(bodyObj, formattedRules) {
+      const replaceField = (text) => {
+        const pattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+        const cleaned = (text || '').replaceAll(pattern, '').trim();
+        return `${cleaned}${formattedRules}`;
+      };
+
+      if (bodyObj.query_str) {
+        bodyObj.query_str = replaceField(bodyObj.query_str);
+      }
+      if (bodyObj.params?.dsl_query) {
+        bodyObj.params.dsl_query = replaceField(bodyObj.params.dsl_query);
+      }
+      if (bodyObj.params) {
+        bodyObj.params.source = 'ios';
+      }
+      return bodyObj;
+    }
+
+    // --- Gemini 逻辑区域 ---
+    function getGeminiRules() {
+      if (!globalThis.location.hostname.includes('gemini.google.com')) return null;
+      try {
+        const path = globalThis.location.pathname;
+        const gemMatch = new RegExp(/\/gem\/([^/]+)/).exec(path);
+        let rawRules = '';
+        if (gemMatch?.[1]) {
+          rawRules = localStorage.getItem(`gemini_answer_rules_gem_${gemMatch[1]}`) || '';
+        }
+        if (!rawRules) {
+          rawRules = localStorage.getItem('gemini_answer_rules_default') || '';
+        }
+        if (rawRules.trim()) {
+          return formatRules(rawRules);
+        }
+      } catch (e) {
+        console.warn('[AI Widescreen] Error reading Gemini rules:', e);
+      }
+      return null;
+    }
+
+    function injectGeminiFreq(freqStr, rules) {
+      if (!rules) return null;
+      try {
+        const outer = JSON.parse(freqStr);
+        if (!Array.isArray(outer) || !outer[1] || typeof outer[1] !== 'string') return null;
+        const innerStr = outer[1];
+        const inner = JSON.parse(innerStr);
+        let modified = false;
+
+        if (Array.isArray(inner) && inner.length > 0 && Array.isArray(inner[0])) {
+          const potentialPrompt = inner[0][0];
+          if (typeof potentialPrompt === 'string') {
+            // [修改重点]：现在使用正则清理旧规则，实现“清理+覆盖”，与 Perplexity 逻辑一致
+            const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+            const cleanPrompt = potentialPrompt.replaceAll(rulePattern, '').trim();
+
+            // 无论之前有没有旧规则，都拼接最新的 rules
+            inner[0][0] = cleanPrompt + rules;
+            modified = true;
+          }
+        }
+        if (modified) {
+          outer[1] = JSON.stringify(inner);
+          return JSON.stringify(outer);
+        }
+      } catch (e) {
+        console.warn('[AI Widescreen] Gemini JSON Parse Warning (non-critical):', e);
+      }
+      return null;
+    }
+
+    function processGeminiBody(body) {
+      const rules = getGeminiRules();
+      if (!rules) return null;
+
+      let freq = null;
+      let type = 'unknown';
+
+      if (typeof body === 'string') {
+        type = 'string';
+        const p = new URLSearchParams(body);
+        freq = p.get('f.req');
+      } else if (body instanceof URLSearchParams) {
+        type = 'searchparams';
+        freq = body.get('f.req');
+      } else if (body instanceof FormData) {
+        type = 'formdata';
+        freq = body.get('f.req');
+      }
+
+      if (!freq) return null;
+      const newFreq = injectGeminiFreq(freq, rules);
+      if (!newFreq) return null;
+
+      if (type === 'string') {
+        const p = new URLSearchParams(body);
+        p.set('f.req', newFreq);
+        return p.toString();
+      } else if (type === 'searchparams' || type === 'formdata') {
+        body.set('f.req', newFreq);
+        return body;
+      }
+      return null;
+    }
+
+    // --- 逻辑拆分：Gemini Fetch 处理 ---
+    function handleGeminiFetch(urlStr, init) {
+      if (!urlStr.includes('batchexecute') && !urlStr.includes('StreamGenerate')) return false;
+
+      const newBody = processGeminiBody(init.body);
+      if (newBody) {
+        init.body = newBody;
+        console.log('[AI Widescreen] Gemini Rules Injected');
+        return true;
+      }
+      return false;
+    }
+
+    // --- 逻辑拆分：Perplexity Fetch 处理 ---
+    function handlePerplexityFetch(urlStr, init) {
+      if (!urlStr.includes('perplexity_ask')) return false;
+      if (typeof init.body !== 'string') return false;
+
+      try {
+        const rules = getPerplexityRules();
+        if (rules) {
+          let bodyObj = JSON.parse(init.body);
+          bodyObj = injectPerplexityBody(bodyObj, rules);
+          init.body = JSON.stringify(bodyObj);
+          console.log('[AI Widescreen] Perplexity Rules Injected');
+          return true;
+        }
+      } catch (e) {
+        console.warn('[AI Widescreen] PPLX Injection Failed:', e);
+      }
+      return false;
+    }
+
+    // --- 统一 Fetch 拦截 ---
+    globalThis.fetch = async function (input, init) {
+      const urlStr = getFetchUrl(input);
+
+      if (init?.method === 'POST' && init.body) {
+        if (!handleGeminiFetch(urlStr, init)) {
+          handlePerplexityFetch(urlStr, init);
+        }
+      }
+
+      return originalFetch.call(this, input, init);
+    };
+
+    // --- 统一 XHR 拦截 ---
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this._reqUrl = (typeof url === 'string' ? url : url?.toString() || '');
+      return originalXhrOpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function (body) {
+      if (this._reqUrl && (this._reqUrl.includes('batchexecute') || this._reqUrl.includes('StreamGenerate'))) {
+        if (body) {
+          const newBody = processGeminiBody(body);
+          if (newBody) {
+            return originalXhrSend.call(this, newBody);
+          }
+        }
+      }
+      return originalXhrSend.apply(this, arguments);
+    };
+
+    console.log('[AI Widescreen] Unified Interceptor Installed.');
+  })();
+
+  // ============================================================
   // 1. Perplexity Section
   // ============================================================
   const perplexityCSS = `
@@ -328,33 +547,8 @@
 
     // Listen to history events just in case
     globalThis.addEventListener('popstate', updateGeminiStyles);
-  }
 
-  /**
-   * Normalizes rule strings by removing redundant headers/separators
-   * and wrapping the content in a standardized format.
-   * * @param {string} rules - The raw rule string to be processed.
-   * @returns {string} The formatted rule string or an empty string if input is invalid.
-   */
-  function normalizeRules(rules) {
-    // Use optional chaining and trim check to handle null/undefined/empty inputs early
-    if (!rules?.trim()) {
-      return '';
-    }
-
-    // REFACTORING NOTE:
-    // Combined redundant replacements into a single regex flow or clear sequence
-    // to improve maintainability.
-    let normalized = rules
-        .replace(/^回答规则\s*\n?---\s*\n?/m, '')
-        .replace(/\n?---\s*$/m, '')
-        .trim();
-
-    if (!normalized) {
-      return '';
-    }
-
-    return `---\n回答规则：\n${normalized}\n---`;
+    setupGeminiAnswerRules();
   }
 
   // ============================================================
@@ -395,17 +589,6 @@
       return `${RULES_STORAGE_PREFIX}${spaceId}`;
     }
 
-    // 获取规则（返回标准格式）
-    function getRules() {
-      try {
-        const stored = localStorage.getItem(getStorageKey()) || '';
-        return normalizeRules(stored);
-      } catch (e) {
-        console.error('Failed to get rules:', e);
-        return '';
-      }
-    }
-
     // 保存规则（保存原始内容，不含格式）
     function saveRules(rules) {
       try {
@@ -432,122 +615,6 @@
         return '';
       }
     }
-
-    // === 立即安装拦截器 ===
-    (function installInterceptor() {
-      const originalFetch = globalThis.fetch;
-
-      /**
-       * Extracts a string URL from various possible fetch input types.
-       * Supports string, URL object, and Request object.
-       * * @param {RequestInfo|URL} url - The input passed to fetch.
-       * @returns {string} The resolved URL string or an empty string if invalid.
-       */
-      function parseUrl(url) {
-        // 1. Handle string directly
-        if (typeof url === 'string') {
-          return url;
-        }
-
-        // 2. Handle URL object or Request object (which both have an 'url' property or 'href')
-        // Request objects in fetch have a 'url' property, while URL objects have 'href'.
-        if (url && typeof url === 'object') {
-          if (url instanceof URL || url.href) {
-            return url.href;
-          }
-          if (url instanceof Request || url.url) {
-            return url.url;
-          }
-        }
-
-        // 3. Fallback: only stringify if it's not a generic object
-        // Avoids "[object Object]" by returning empty string for plain objects
-        return '';
-      }
-
-      /**
-       * Internal helper to remove existing rules and append new ones.
-       * Extracted to outer scope to reduce nesting depth and improve testability.
-       * @param {string} text - The source text to modify.
-       * @param {RegExp} pattern - The regex pattern for old rules.
-       * @param {string} newRules - The new rules to append.
-       * @returns {string}
-       */
-      function formatFieldWithRules(text, pattern, newRules) {
-        const cleaned = (text || '').replaceAll(pattern, '').trim();
-        return `${cleaned}\n\n${newRules}`.trim();
-      }
-
-      /**
-       * Handles the logic of cleaning and injecting rules into the request body.
-       * @param {Object} bodyObj - The parsed JSON body of the request.
-       * @param {string} rules - The formatted rules to inject.
-       * @returns {Object} The modified body object.
-       */
-      function injectRulesIntoBody(bodyObj, rules) {
-        // Define pattern once in the functional scope
-        const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
-
-        if (bodyObj.query_str) {
-          bodyObj.query_str = formatFieldWithRules(bodyObj.query_str, rulePattern, rules);
-        }
-
-        // Use optional chaining carefully to avoid deep nested if-statements
-        if (bodyObj.params?.dsl_query) {
-          bodyObj.params.dsl_query = formatFieldWithRules(
-              bodyObj.params.dsl_query,
-              rulePattern,
-              rules
-          );
-        }
-
-        return bodyObj;
-      }
-
-      /**
-       * Optimized fetch interceptor logic with reduced cognitive complexity.
-       */
-      globalThis.fetch = function (...args) {
-        const [url, options] = args;
-        const urlString = parseUrl(url);
-        // If urlString is empty, it means the input was unparseable or invalid
-        if (!urlString) {
-          return originalFetch.apply(this, args);
-        }
-
-        // 1. Early exit for non-target requests
-        const isPostPerplexity = options?.method === 'POST' &&
-            urlString.includes('perplexity_ask') &&
-            typeof options.body === 'string';
-
-        if (!isPostPerplexity) {
-          return originalFetch.apply(this, args);
-        }
-
-        try {
-          const bodyObj = JSON.parse(options.body);
-          const rules = typeof getRules === 'function' ? getRules() : null;
-
-          // 2. Modify mandatory parameters
-          if (bodyObj.params) {
-            bodyObj.params.source = 'ios';
-          }
-
-          // 3. Inject rules if available
-          if (rules && (bodyObj.query_str || bodyObj.params?.dsl_query)) {
-            injectRulesIntoBody(bodyObj, rules);
-            options.body = JSON.stringify(bodyObj);
-            console.log('✅ 规则已更新并注入到查询底部');
-          }
-        } catch (e) {
-          console.error('❌ 拦截器处理失败:', e);
-        }
-
-        return originalFetch.apply(this, args);
-      };
-
-      console.log('✅ Fetch 拦截器已安装');
-    })();
 
     // 添加样式
     const ruleStyles = `
@@ -853,5 +920,229 @@
     observer.observe(document.body, {childList: true, subtree: true});
   }
 
+  // ============================================================
+  // 6.5. Gemini Answer Rules UI (Multi-Space Support)
+  // ============================================================
+  function setupGeminiAnswerRules() {
+    const BUTTON_CLASS = 'gemini-rules-button';
+    const MODAL_ID = 'gemini-rules-modal';
+
+    // --- Dynamic Key Logic ---
+    // 根据 URL 判断当前是 Default 还是特定的 Gem
+    function getCurrentStorageKey() {
+      const path = globalThis.location.pathname;
+      // 匹配 /gem/ 后面的第一个 ID 段
+      // 例如: /gem/gem-id-1234/chat-id -> 捕获 gem-id-1234
+      const gemMatch = new RegExp(/\/gem\/([^/]+)/).exec(path);
+
+      if (gemMatch?.[1]) {
+        return `gemini_answer_rules_gem_${gemMatch[1]}`;
+      }
+      return 'gemini_answer_rules_default';
+    }
+
+    function getRawRules() {
+      return localStorage.getItem(getCurrentStorageKey()) || '';
+    }
+
+    function saveRules(rules) {
+      try {
+        localStorage.setItem(getCurrentStorageKey(), rules.trim());
+        return true;
+      } catch (e) {
+        console.error('Failed to save Gemini rules:', e);
+        return false;
+      }
+    }
+
+    // Styles
+    const geminiRuleStyles = `
+      .${BUTTON_CLASS} {
+        display: flex; align-items: center; justify-content: center;
+        width: 40px; height: 40px; border-radius: 50%;
+        color: var(--color-on-surface-variant, #444746);
+        cursor: pointer; transition: background-color 0.2s;
+        border: none; background: transparent; flex-shrink: 0;
+        margin: 0 4px;
+      }
+      .${BUTTON_CLASS}:hover { background-color: rgba(60, 64, 67, 0.08); }
+      .${BUTTON_CLASS}.has-rules { color: #1a73e8; background-color: rgba(26, 115, 232, 0.1); }
+      @media (prefers-color-scheme: dark) {
+        .${BUTTON_CLASS} { color: #c4c7c5; }
+        .${BUTTON_CLASS}:hover { background-color: rgba(255, 255, 255, 0.08); }
+        .${BUTTON_CLASS}.has-rules { color: #8ab4f8; background-color: rgba(138, 180, 248, 0.1); }
+      }
+      #${MODAL_ID} { z-index: 99999 !important; font-family: 'Google Sans', Roboto, sans-serif; }
+    `;
+
+    if (!document.getElementById('gemini-rules-style')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'gemini-rules-style';
+      styleEl.textContent = geminiRuleStyles;
+      document.head.appendChild(styleEl);
+    }
+
+    // --- Helper: Create SVG safely without innerHTML ---
+    function createSvgIcon() {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "currentColor");
+      svg.setAttribute("width", "24");
+      svg.setAttribute("height", "24");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z");
+      svg.appendChild(path);
+      return svg;
+    }
+
+    // Modal Creation Logic
+    function createModal() {
+      const existing = document.getElementById(MODAL_ID);
+      const existingOverlay = document.getElementById(`${MODAL_ID}-overlay`);
+      if (existing) existing.remove();
+      if (existingOverlay) existingOverlay.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = `${MODAL_ID}-overlay`;
+      Object.assign(overlay.style, {
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.6)', zIndex: '99998', backdropFilter: 'blur(4px)'
+      });
+
+      const modal = document.createElement('div');
+      modal.id = MODAL_ID;
+      Object.assign(modal.style, {
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        background: 'var(--md-sys-color-surface, #fff)',
+        color: 'var(--md-sys-color-on-surface, #000)',
+        borderRadius: '24px', padding: '24px', width: '90%', maxWidth: '600px',
+        zIndex: '99999', boxShadow: '0 24px 48px rgba(0,0,0,0.2)'
+      });
+
+      if (document.body.classList.contains('dark-theme')) {
+        modal.style.background = '#1e1f20';
+        modal.style.color = '#e3e3e3';
+      }
+
+      // Title & Info
+      const currentKey = getCurrentStorageKey();
+      const isDefault = currentKey === 'gemini_answer_rules_default';
+      const labelText = isDefault ? 'Global (Default)' : `Gem: ${currentKey.replace('gemini_answer_rules_gem_', '').substring(0, 8)}...`;
+
+      const header = document.createElement('div');
+      header.style.cssText = "font-size: 20px; font-weight: 500; margin-bottom: 8px; display: flex; justify-content: space-between;";
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = "Gemini 规则设置";
+
+      const infoSpan = document.createElement('span');
+      infoSpan.style.cssText = "font-size: 12px; opacity: 0.6; align-self: center;";
+      infoSpan.textContent = labelText;
+
+      header.appendChild(titleSpan);
+      header.appendChild(infoSpan);
+
+      const hint = document.createElement('div');
+      hint.style.cssText = "font-size: 13px; opacity: 0.8; margin-bottom: 16px;";
+      hint.textContent = "当前规则仅对该 Space/Gem 生效。";
+
+      const textarea = document.createElement('textarea');
+      textarea.id = `${MODAL_ID}-textarea`;
+      textarea.style.cssText = "width: 100%; min-height: 200px; margin-bottom: 16px; background: transparent; color: inherit; border: 1px solid #ccc; border-radius: 8px; padding: 8px;";
+      textarea.value = getRawRules();
+
+      const footer = document.createElement('div');
+      footer.style.cssText = "display: flex; justify-content: flex-end; gap: 10px;";
+
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = "保存";
+      saveBtn.style.cssText = "padding: 8px 16px; background: #0b57d0; color: white; border: none; border-radius: 18px; cursor: pointer;";
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = "取消";
+      cancelBtn.style.cssText = "padding: 8px 16px; background: transparent; color: inherit; border: none; cursor: pointer;";
+
+      footer.appendChild(cancelBtn);
+      footer.appendChild(saveBtn);
+
+      modal.appendChild(header);
+      modal.appendChild(hint);
+      modal.appendChild(textarea);
+      modal.appendChild(footer);
+
+      document.body.appendChild(overlay);
+      document.body.appendChild(modal);
+
+      const close = () => {
+        overlay.remove();
+        modal.remove();
+      };
+      cancelBtn.onclick = close;
+      overlay.onclick = close;
+
+      saveBtn.onclick = () => {
+        saveRules(textarea.value);
+        updateButtonState();
+        close();
+      };
+
+      setTimeout(() => textarea.focus(), 100);
+    }
+
+    function updateButtonState() {
+      const btn = document.querySelector(`.${BUTTON_CLASS}`);
+      if (!btn) return;
+      const hasRules = !!getRawRules().trim();
+      if (hasRules) {
+        btn.classList.add('has-rules');
+        btn.title = "Gemini 规则：已启用 (点击编辑)";
+      } else {
+        btn.classList.remove('has-rules');
+        btn.title = "Gemini 规则：未设置 (点击编辑)";
+      }
+    }
+
+    function addButton() {
+      if (document.querySelector(`.${BUTTON_CLASS}`)) return;
+      const leadingActions = document.querySelector('.leading-actions-wrapper');
+      if (!leadingActions) return;
+
+      const btn = document.createElement('button');
+      btn.className = BUTTON_CLASS;
+      btn.title = "Gemini 规则设置";
+      btn.type = "button";
+      btn.appendChild(createSvgIcon());
+
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        createModal();
+      };
+
+      leadingActions.insertBefore(btn, leadingActions.firstChild);
+      updateButtonState();
+    }
+
+    // --- State Management for SPA Navigation ---
+    let lastPath = globalThis.location.pathname;
+
+    // Observer handles dynamic loading AND button state updates on navigation
+    const observer = new MutationObserver(() => {
+      // 1. Ensure button exists
+      if (!document.querySelector(`.${BUTTON_CLASS}`)) addButton();
+
+      // 2. Check if path changed (user switched Gem), update button style
+      if (globalThis.location.pathname !== lastPath) {
+        lastPath = globalThis.location.pathname;
+        updateButtonState();
+      }
+    });
+
+    observer.observe(document.body, {childList: true, subtree: true});
+
+    setTimeout(addButton, 500);
+    setTimeout(addButton, 1500);
+    setTimeout(addButton, 3000);
+  }
 
 })();
