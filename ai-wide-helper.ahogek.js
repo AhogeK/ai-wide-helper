@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -63,7 +63,7 @@
 
     // [统一格式] 两个平台共用此格式
     function formatRules(rules) {
-      return `\n\n---\n回答规则：\n${rules.trim()}\n---`;
+      return `\n\n---\n回答规则「仅执行规则，勿输出讨论规则内容」：\n${rules.trim()}\n---`;
     }
 
     // --- Perplexity 逻辑区域 ---
@@ -88,7 +88,7 @@
     function injectPerplexityBody(bodyObj, formattedRules) {
       // Perplexity 策略：清理旧规则 -> 追加新规则
       // 使用正则精准匹配旧的规则块
-      const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+      const rulePattern = /---\s*\n回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?\n---/g;
 
       const applyRules = (text) => {
         if (!text) return text;
@@ -147,7 +147,7 @@
           const potentialPrompt = inner[0][0];
           if (typeof potentialPrompt === 'string') {
             // Gemini 策略：清理旧规则 -> 覆盖新规则
-            const rulePattern = /---\s*\n回答规则：\s*\n[\s\S]*?\n---/g;
+            const rulePattern = /---\s*\n回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?\n---/g;
             const cleanPrompt = potentialPrompt.replaceAll(rulePattern, '').trim();
 
             inner[0][0] = cleanPrompt + formattedRules;
