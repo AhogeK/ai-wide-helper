@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -463,6 +463,9 @@
   function setupPerplexityModelLabels() {
     const MODEL_LABEL_CLASS = 'pplx-inline-model-label';
     const style = document.createElement('style');
+
+    // [变更] 更新 CSS 以支持亮色/暗色主题适配
+    // [Change] Updated CSS to support both Light and Dark themes via .dark selector
     style.textContent = `
     .${MODEL_LABEL_CLASS} {
       margin-left: 6px;
@@ -474,10 +477,21 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      white-space: nowrap;
+      
+      /* Default (Light Mode) Styling */
+      /* Use dark semi-transparent colors for light backgrounds */
+      background: rgba(0, 0, 0, 0.05);
+      color: rgba(0, 0, 0, 0.65);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
+    /* Dark Mode Override */
+    /* Perplexity applies the .dark class to the HTML root */
+    .dark .${MODEL_LABEL_CLASS} {
       background: rgba(255, 255, 255, 0.04);
       color: rgba(255, 255, 255, 0.75);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      white-space: nowrap;
     }
   `;
     document.head.appendChild(style);
@@ -488,28 +502,36 @@
       if (!label) return false;
       if (NON_MODEL_LABELS.has(label)) return false;
       // Fixed: Added 'grok' to support Grok models
-      return /gpt|gemini|claude|llama|sonnet|opus|haiku|grok/i.test(label);
+      return /gpt|gemini|claude|llama|sonnet|opus|haiku|grok|o1|o3/i.test(label);
     }
 
     function enhanceModelButtons(root = document) {
+      // Perplexity uses buttons with aria-labels for model info
       const buttons = root.querySelectorAll('button[aria-label]');
       buttons.forEach(button => {
         if (button.dataset.modelLabelInjected === '1') return;
         const label = button.getAttribute('aria-label') || '';
         if (!isModelLabel(label)) return;
+
+        // Ensure we are targeting the small icon buttons (h-8 aspect-square pattern usually)
         const cls = button.className || '';
         if (!cls.includes('h-8') || !cls.includes('aspect-square')) return;
+
         button.dataset.modelLabelInjected = '1';
         const span = document.createElement('span');
         span.className = MODEL_LABEL_CLASS;
         span.textContent = label;
+
+        // Insert after the button container
         const container = button.closest('span') || button;
         container.after(span);
       });
     }
 
+    // Initial run
     setTimeout(() => enhanceModelButtons(), 500);
 
+    // Observe DOM changes for new messages
     const observer = new MutationObserver(mutations => {
       for (const m of mutations) {
         m.addedNodes.forEach(node => {
