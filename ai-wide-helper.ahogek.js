@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -302,7 +302,6 @@
     }
 
     /* === Settings modal size optimization === */
-    /* Enlarge the entire settings modal container */
     div[class*="duration-200"][class*="fill-mode-both"][class*="animate-in"]
     > div
     > div.bg-base.shadow-md.overflow-y-auto.scrollbar-subtle {
@@ -321,28 +320,57 @@
       overflow-y: auto !important;
     }
 
-    /* Ensure the textarea container adapts to content */
     div[data-test-id="answer-instructions-input"] .relative.flex.items-center {
       min-height: 350px !important;
     }
 
-    /* Improve textarea wrapper layout */
     div[data-test-id="answer-instructions-input"] div[class*="w-full"][class*="focus:ring-subtler"] {
       min-height: 350px !important;
       align-items: flex-start !important;
     }
 
-    /* Ensure proper spacing in modal content area */
     div[class*="px-md"][class*="pb-md"][class*="flex"][class*="min-h-0"]
     > div[class*="grow"][class*="flex-col"][class*="p-sm"] {
       padding-top: 1.5rem !important;
       padding-bottom: 1.5rem !important;
     }
 
-    /* Optimize modal scroll behavior */
     div.bg-base.shadow-md.overflow-y-auto.scrollbar-subtle {
       overflow-y: auto !important;
       scrollbar-width: thin !important;
+    }
+
+    /* === [修改] 按钮位置：右下角输入框上方，水平排列 === */
+    /* [Change] Position buttons horizontally above the input box (bottom-right) */
+    div.bottom-md.right-md.fixed {
+      /* Reset default positioning */
+      top: auto !important;
+      transform: none !important;
+
+      /* Position: ~120px from bottom to sit just above the standard input bar */
+      bottom: 120px !important; 
+      right: 30px !important;
+      
+      /* Layout: Horizontal row (Left-Right) */
+      display: flex !important;
+      flex-direction: row !important;
+      gap: 12px !important;
+      
+      /* Ghost Mode: Semi-transparent when idle, opaque on hover */
+      opacity: 0.1 !important;
+      transition: opacity 0.3s ease-in-out !important;
+      z-index: 50;
+      pointer-events: auto !important;
+    }
+
+    /* Hover state for visibility */
+    div.bottom-md.right-md.fixed:hover {
+      opacity: 1 !important;
+    }
+
+    /* Force internal flex containers to also be horizontal */
+    div.bottom-md.right-md.fixed > div.flex {
+      flex-direction: row !important;
     }
   `;
 
@@ -506,11 +534,28 @@
     }
 
     function enhanceModelButtons(root = document) {
-      // Perplexity uses buttons with aria-labels for model info
+      // 1. [New] Dedicated logic to strip tooltips from the floating footer buttons
+      // Target the specific container for Language/Help buttons
+      const footerButtons = root.querySelectorAll('.bottom-md.right-md.fixed button[aria-label]');
+      footerButtons.forEach(btn => {
+        // Remove aria-label immediately to prevent tooltip from appearing
+        btn.removeAttribute('aria-label');
+      });
+
+      // 2. Existing logic for Model Labels (Top-left usually)
       const buttons = root.querySelectorAll('button[aria-label]');
       buttons.forEach(button => {
+        // Skip if already processed or if it's one of the footer buttons we just cleaned
         if (button.dataset.modelLabelInjected === '1') return;
+
+        // Double check: if we somehow missed stripping the label above, do it here based on text content
         const label = button.getAttribute('aria-label') || '';
+        if (label === 'Language' || label === 'Help menu' || label === 'Change language') {
+          button.removeAttribute('aria-label');
+          return;
+        }
+
+        // --- Model Label Logic ---
         if (!isModelLabel(label)) return;
 
         // Ensure we are targeting the small icon buttons (h-8 aspect-square pattern usually)
