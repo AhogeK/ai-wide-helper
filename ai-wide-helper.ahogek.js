@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -657,52 +657,38 @@
   }
 
   // ============================================================
-  // 6. Perplexity Answer Rules Feature
+  // 6. Perplexity Answer Rules Feature (Fixed: data-color-scheme support)
   // ============================================================
   function setupAnswerRules() {
     const RULES_STORAGE_PREFIX = 'pplx_answer_rules_';
     const BUTTON_CLASS = 'pplx-rules-button';
     const MODAL_ID = 'pplx-rules-modal';
+    const DARK_MODE_CLASS = 'pplx-dark-mode';
 
-    // 获取当前 Space ID（优化版）
     function getCurrentSpaceId() {
-      // 方法1: 从 URL 中获取
-      // 修复：使用非贪婪匹配 .*? 或匹配最后一个 - 后的内容
       const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
-      if (urlMatch) {
-        return urlMatch[1];
-      }
+      if (urlMatch) return urlMatch[1];
 
-      // 方法2: 从 DOM 中查找 Space 链接
       const spaceLink = document.querySelector('a[href*="/spaces/"]');
       if (spaceLink) {
         const href = spaceLink.getAttribute('href');
-        // 同样修复 DOM 查找的正则
         const hrefMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(href);
-        if (hrefMatch) {
-          return hrefMatch[1];
-        }
+        if (hrefMatch) return hrefMatch[1];
       }
-
-      // 默认：不在任何 Space 中
       return 'default';
     }
 
-    // 获取存储键
     function getStorageKey() {
       const spaceId = getCurrentSpaceId();
       return `${RULES_STORAGE_PREFIX}${spaceId}`;
     }
 
-    // 保存规则（保存原始内容，不含格式）
     function saveRules(rules) {
       try {
-        // 保存时去除格式标记，只保存纯内容
         let content = rules
             .replace(/^回答规则\s*\n?---\s*\n?/m, '')
             .replace(/\n?---\s*$/m, '')
             .trim();
-
         localStorage.setItem(getStorageKey(), content);
         return true;
       } catch (e) {
@@ -711,7 +697,6 @@
       }
     }
 
-    // 获取原始规则内容（用于编辑器显示）
     function getRawRules() {
       try {
         return localStorage.getItem(getStorageKey()) || '';
@@ -721,12 +706,12 @@
       }
     }
 
-    // 添加样式
+    // [修复] 样式定义：添加 data-color-scheme 属性选择器
     const ruleStyles = `
     .${BUTTON_CLASS} {
       font-sans: inherit;
       outline: none;
-      transition: all 0.3s ease-out;
+      transition: all 0.2s ease-out;
       user-select: none;
       position: relative;
       font-weight: 600;
@@ -755,49 +740,80 @@
     }
 
     .${BUTTON_CLASS}.has-rules {
-      color: var(--text-super);
+      color: #0ea5e9;
     }
-
+    
+    /* === Modal Container (Default: Light Mode) === */
     #${MODAL_ID} {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: var(--bg-base);
-      border: 1px solid var(--border-subtlest);
+      
+      background: #ffffff;
+      color: #1f2937;
+      border: 1px solid #e5e7eb;
+      
       border-radius: 12px;
       padding: 24px;
       width: 90%;
       max-width: 600px;
       z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      transition: background-color 0.2s, border-color 0.2s, color 0.2s;
     }
 
+    /* === Dark Mode Override (Robust Selectors) === */
+    /* [关键修复] 显式匹配 data-color-scheme="dark" */
+    html[data-color-scheme="dark"] #${MODAL_ID},
+    html.dark #${MODAL_ID},
+    body.dark #${MODAL_ID},
+    #${MODAL_ID}.${DARK_MODE_CLASS} {
+      background: #191919 !important;
+      color: #e5e5e5 !important;
+      border-color: #333 !important;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    /* === Textarea Styling (Default: Light Mode) === */
     #${MODAL_ID} textarea {
       width: 100%;
       min-height: 300px;
-      background: var(--bg-offset);
-      border: 1px solid var(--border-subtler);
+      
+      background: #f9fafb;
+      color: #111827;
+      border: 1px solid #d1d5db;
+      
       border-radius: 8px;
       padding: 12px;
-      color: var(--text-foreground);
-      font-family: 'Söhne Mono', monospace;
+      font-family: 'Söhne Mono', 'Menlo', monospace;
       font-size: 13px;
-      line-height: 1.5;
+      line-height: 1.6;
       resize: vertical;
       outline: none;
+      transition: all 0.2s;
+    }
+
+    /* Dark Mode Textarea */
+    html[data-color-scheme="dark"] #${MODAL_ID} textarea,
+    html.dark #${MODAL_ID} textarea,
+    body.dark #${MODAL_ID} textarea,
+    #${MODAL_ID}.${DARK_MODE_CLASS} textarea {
+      background: #222 !important;
+      color: #e5e5e5 !important;
+      border-color: #444 !important;
     }
 
     #${MODAL_ID} textarea:focus {
-      border-color: var(--border-super);
-      box-shadow: 0 0 0 2px var(--bg-super-10);
+      border-color: #0ea5e9 !important;
+      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
     }
 
+    /* === Other Elements === */
     #${MODAL_ID} .modal-header {
       font-size: 18px;
       font-weight: 600;
       margin-bottom: 8px;
-      color: var(--text-foreground);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -805,19 +821,20 @@
 
     #${MODAL_ID} .modal-space-info {
       font-size: 12px;
-      color: var(--text-quieter);
+      opacity: 0.6;
       font-weight: 400;
+      font-family: monospace;
     }
 
     #${MODAL_ID} .modal-hint {
-      font-size: 12px;
-      color: var(--text-quieter);
-      margin-bottom: 12px;
-      line-height: 1.4;
+      font-size: 13px;
+      opacity: 0.75;
+      margin-bottom: 16px;
+      line-height: 1.5;
     }
 
     #${MODAL_ID} .modal-footer {
-      margin-top: 16px;
+      margin-top: 20px;
       display: flex;
       gap: 12px;
       justify-content: flex-end;
@@ -827,28 +844,31 @@
       padding: 8px 16px;
       border-radius: 8px;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
       border: none;
-      transition: all 0.2s;
+      transition: opacity 0.2s;
     }
 
     #${MODAL_ID} .btn-save {
-      background: var(--bg-super);
-      color: var(--text-inverse);
+      background: #0ea5e9;
+      color: #ffffff;
     }
 
     #${MODAL_ID} .btn-save:hover {
-      opacity: 0.8;
+      opacity: 0.9;
     }
 
     #${MODAL_ID} .btn-cancel {
-      background: var(--bg-subtle);
-      color: var(--text-foreground);
+      background: transparent;
+      color: inherit;
+      border: 1px solid currentColor;
+      opacity: 0.6;
     }
 
     #${MODAL_ID} .btn-cancel:hover {
-      background: var(--bg-subtler);
+      opacity: 1;
+      background: rgba(125, 125, 125, 0.1);
     }
 
     #${MODAL_ID}-overlay {
@@ -857,9 +877,9 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.4);
       z-index: 9999;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(2px);
     }
   `;
 
@@ -867,7 +887,6 @@
     styleElement.textContent = ruleStyles;
     document.head.appendChild(styleElement);
 
-    // 创建模态框
     function createModal() {
       const existingModal = document.getElementById(MODAL_ID);
       const existingOverlay = document.getElementById(`${MODAL_ID}-overlay`);
@@ -880,10 +899,47 @@
       const modal = document.createElement('div');
       modal.id = MODAL_ID;
 
+      // --- 主题同步逻辑 (修正版) ---
+      // [修复] 检查 data-color-scheme 属性
+      const updateThemeMode = () => {
+        const docEl = document.documentElement;
+
+        // 1. Check data-color-scheme (Primary method for Perplexity)
+        const colorScheme = docEl.dataset.colorScheme;
+
+        // 2. Fallbacks
+        const hasDarkClass = docEl.classList.contains('dark') || document.body.classList.contains('dark');
+        const hasDataTheme = docEl.dataset.theme === 'dark';
+
+        const isDark = colorScheme === 'dark' || hasDarkClass || hasDataTheme;
+
+        if (isDark) {
+          modal.classList.add(DARK_MODE_CLASS);
+        } else {
+          modal.classList.remove(DARK_MODE_CLASS);
+        }
+      };
+
+      updateThemeMode();
+
+      // [修复] 监听 data-color-scheme 变化
+      const observerCallback = (mutations) => {
+        for (const mutation of mutations) {
+          const name = mutation.attributeName;
+          if (name === 'data-color-scheme' || name === 'class' || name === 'data-theme') {
+            updateThemeMode();
+            break;
+          }
+        }
+      };
+
+      const themeObserver = new MutationObserver(observerCallback);
+      themeObserver.observe(document.documentElement, {attributes: true});
+      themeObserver.observe(document.body, {attributes: true}); // Backup
+      // --- End Theme Sync ---
+
       const spaceId = getCurrentSpaceId();
       const isDefaultSpace = spaceId === 'default';
-
-      // 获取原始规则内容（不含格式）
       const rawRules = getRawRules();
 
       modal.innerHTML = `
@@ -909,6 +965,7 @@
       const cancelBtn = modal.querySelector('.btn-cancel');
 
       const closeModal = () => {
+        themeObserver.disconnect();
         modal.remove();
         overlay.remove();
       };
@@ -955,9 +1012,7 @@
     // 添加按钮
     function addRulesButton() {
       if (document.querySelector(`.${BUTTON_CLASS}`)) return;
-
       const toolbarContainer = document.querySelector('.flex.items-center.justify-self-end.col-start-3.row-start-2');
-
       if (!toolbarContainer) return;
 
       const button = document.createElement('button');
@@ -991,34 +1046,26 @@
           toolbarContainer.insertBefore(button, firstChild.nextElementSibling);
         }
       }
-
       updateButtonState();
     }
 
-    // 初始化按钮
     setTimeout(() => {
       addRulesButton();
     }, 1000);
 
-    // 监听 URL 变化和 DOM 变化
     let lastUrl = location.href;
     let lastSpaceId = getCurrentSpaceId();
-
     const checkChanges = () => {
       const url = location.href;
       const spaceId = getCurrentSpaceId();
-
       if (url !== lastUrl || spaceId !== lastSpaceId) {
         lastUrl = url;
         lastSpaceId = spaceId;
         setTimeout(updateButtonState, 500);
-        console.log('Space changed to:', spaceId);
       }
     };
-
     new MutationObserver(checkChanges).observe(document, {subtree: true, childList: true});
 
-    // 监听 DOM 变化以重新添加按钮
     const observer = new MutationObserver(() => {
       addRulesButton();
     });
