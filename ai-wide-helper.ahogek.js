@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.4
+// @version      1.1.5
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -492,8 +492,6 @@
     const MODEL_LABEL_CLASS = 'pplx-inline-model-label';
     const style = document.createElement('style');
 
-    // [变更] 更新 CSS 以支持亮色/暗色主题适配
-    // [Change] Updated CSS to support both Light and Dark themes via .dark selector
     style.textContent = `
     .${MODEL_LABEL_CLASS} {
       margin-left: 6px;
@@ -508,18 +506,20 @@
       white-space: nowrap;
       
       /* Default (Light Mode) Styling */
-      /* Use dark semi-transparent colors for light backgrounds */
       background: rgba(0, 0, 0, 0.05);
       color: rgba(0, 0, 0, 0.65);
       border: 1px solid rgba(0, 0, 0, 0.1);
     }
 
-    /* Dark Mode Override */
-    /* Perplexity applies the .dark class to the HTML root */
-    .dark .${MODEL_LABEL_CLASS} {
-      background: rgba(255, 255, 255, 0.04);
-      color: rgba(255, 255, 255, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Dark Mode Override - Robust Selectors */
+    /* Covers html.dark, body.dark, and data-color-scheme="dark" */
+    html.dark .${MODEL_LABEL_CLASS},
+    body.dark .${MODEL_LABEL_CLASS},
+    html[data-color-scheme="dark"] .${MODEL_LABEL_CLASS},
+    [data-theme="dark"] .${MODEL_LABEL_CLASS} {
+      background: rgba(255, 255, 255, 0.04) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
   `;
     document.head.appendChild(style);
@@ -529,36 +529,31 @@
     function isModelLabel(label) {
       if (!label) return false;
       if (NON_MODEL_LABELS.has(label)) return false;
-      // Fixed: Added 'grok' to support Grok models
       return /gpt|gemini|claude|llama|sonnet|opus|haiku|grok|o1|o3/i.test(label);
     }
 
     function enhanceModelButtons(root = document) {
-      // 1. [New] Dedicated logic to strip tooltips from the floating footer buttons
-      // Target the specific container for Language/Help buttons
+      // 1. Dedicated logic to strip tooltips from the floating footer buttons
       const footerButtons = root.querySelectorAll('.bottom-md.right-md.fixed button[aria-label]');
       footerButtons.forEach(btn => {
-        // Remove aria-label immediately to prevent tooltip from appearing
         btn.removeAttribute('aria-label');
       });
 
-      // 2. Existing logic for Model Labels (Top-left usually)
+      // 2. Existing logic for Model Labels
       const buttons = root.querySelectorAll('button[aria-label]');
       buttons.forEach(button => {
-        // Skip if already processed or if it's one of the footer buttons we just cleaned
         if (button.dataset.modelLabelInjected === '1') return;
 
-        // Double check: if we somehow missed stripping the label above, do it here based on text content
         const label = button.getAttribute('aria-label') || '';
+
+        // Skip footer buttons which we handle above
         if (label === 'Language' || label === 'Help menu' || label === 'Change language') {
           button.removeAttribute('aria-label');
           return;
         }
 
-        // --- Model Label Logic ---
         if (!isModelLabel(label)) return;
 
-        // Ensure we are targeting the small icon buttons (h-8 aspect-square pattern usually)
         const cls = button.className || '';
         if (!cls.includes('h-8') || !cls.includes('aspect-square')) return;
 
@@ -567,7 +562,6 @@
         span.className = MODEL_LABEL_CLASS;
         span.textContent = label;
 
-        // Insert after the button container
         const container = button.closest('span') || button;
         container.after(span);
       });
@@ -576,7 +570,7 @@
     // Initial run
     setTimeout(() => enhanceModelButtons(), 500);
 
-    // Observe DOM changes for new messages
+    // Observe DOM changes
     const observer = new MutationObserver(mutations => {
       for (const m of mutations) {
         m.addedNodes.forEach(node => {
