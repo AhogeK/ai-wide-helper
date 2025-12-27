@@ -54,6 +54,22 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 懂得更现代化的写法，例如`Arrays.sort(meetings, (a, b) -> Integer.compare(a[0], b[0]));` 就可以写成
 `Arrays.sort(meetings, Comparator.comparingInt(a -> a[0]));`
 
+## Code Style (代码风格)
+
+- **核心原则**：代码应严格遵循 **Effective Java (3rd Edition)** 的最佳实践，并在确保可读性的前提下，积极融合 Java 17+
+  的现代函数式与声明式特性。
+
+- **推荐实践 (Good)**:
+  - **现代集合处理**：利用 Stream API 与不可变集合。例如：`var names = list.stream().map(Record::name).toList();`
+  - **代数数据类型 (ADT)**：使用 `sealed interface` 与 `record` 精确定义领域模型与状态机，利用类型系统强制逻辑完备性。
+  - **局部变量类型推断**：在上下文清晰时，优先使用 `var` 以减少视觉噪声。
+  - **防御性编程**：优先使用 `Optional` 避免 `null` 检查，坚持构造函数校验。
+
+- **禁止行为 (Bad)**:
+  - **非规范命名**：禁止在局部变量中使用全大写字母（如 `int INF = 100;`），应遵循驼峰命名法（`camelCase`）。
+  - **过度注释**：避免为自解释的代码编写废话注释。
+  - **遗留容器**：除非特殊兼容需求，严禁使用 `Vector`、`Hashtable` 或手动管理循环（如 `for(int i=0;...)`）来处理简单集合转换。
+
 ## Scenario-Specific Guidelines (场景化准则)
 
 ### 1. Competitive Optimization (仅限竞赛/刷题场景)
