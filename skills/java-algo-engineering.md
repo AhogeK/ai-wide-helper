@@ -3,104 +3,110 @@ name: java-algo-engineering
 description: 构建高性能、生产级或竞赛级的 Java 算法解决方案。根据上下文自适应调整风格：在业务场景中追求健壮性与可维护性；在算法竞赛（LeetCode/Codeforces）场景中，基于题目约束假设输入合法，追求极致的时间/空间效率与代码简洁度。
 ---
 
-此技能用于生成高质量的 Java 算法代码。它能识别用户需求是“解决工程问题”还是“解答算法题目”，并据此调整代码风格。
+此技能旨在为用户生成高质量的 Java 算法代码。它能灵敏识别用户需求是“解决工程问题”还是“解答算法题目”，并据此提供最佳实践参考。
 
-用户提供需求：可能是复杂的业务算法组件，也可能是具体的 LeetCode/牛客网题目。
+## 🧠 Contextual Strategy Matrix (语境策略矩阵)
 
-## Engineering & Contextual Thinking (工程与语境思维)
-
-在编码前，首先**锁定上下文模式 (Context Mode)** 并据此制定策略：
+在编码前，建议根据上下文选择适配的开发模式：
 
 ### Mode A: Competitive / Interview (算法竞赛/面试模式)
 
-*当用户提供 LeetCode/牛客题目或明确询问算法解题时。*
+*适用场景：LeetCode、Codeforces、牛客网、算法笔试*
 
-- **Constraint Trust (信任约束)**: 严格基于题目给出的数据范围（Constraints）。**假设输入合法**，绝不编写冗余的
-  `if (input == null) throw ...` 等防御性代码，除非题目边缘情况（Edge Cases）未定义。
-- **Performance First (性能优先)**: 哪怕牺牲一点可读性，也要换取运行效率。
-    - **Primitives**: 强制使用 `int[]` / `long[]` 代替 `List<Integer>`，避免自动装箱。
-    - **Static Context**: 算法逻辑通常写在 `Solution` 类的 `public` 方法中，辅助类定义为 `static` 内部类。
-    - **IO Optimization**: 如果是 ACM 模式，使用 `BufferedReader` / `StreamTokenizer` 而非 `Scanner`。
+- **Constraint Trust (信任约束)**: 建议严格基于题目给出的数据范围（Constraints）进行编码。**默认假设输入合法**
+  ，避免编写冗余的防御性代码（如 `if (input == null)`），聚焦核心逻辑。
+- **Performance First (性能优先)**: 在可读性与运行效率之间，倾向于效率。
+  - **Primitives**: 推荐优先使用 `int[]` / `long[]` / `boolean[]` 代替 `List<Integer>`，避免自动装箱/拆箱的性能损耗。
+  - **Static Context**: 算法逻辑通常封装在 `Solution` 类的 `public` 方法中，辅助数据结构建议定义为 `static` 内部类。
+  - **IO Optimization**: ACM 模式下，推荐使用 `BufferedReader` / `StreamTokenizer` 替代 `Scanner` 以提升 I/O 速度。
 
 ### Mode B: Production / System (生产/系统模式)
 
-*当用户要求构建业务组件、工具类或重构现有逻辑时。*
+*适用场景：业务组件开发、工具类封装、系统重构*
 
-- **Robustness First (健壮性优先)**: 假设输入不可靠。必须包含完整的防御性编程（Null Check、Boundary Check）、异常处理和日志记录。
-- **Maintainability (可维护性)**: 遵循 SOLID 原则，使用设计模式，确保代码可测试、可扩展。
+- **Robustness First (健壮性优先)**: 默认假设输入不可靠。建议包含完整的防御性编程（Null Check、Boundary
+  Check）、标准化的异常处理和上下文日志记录。
+- **Maintainability (可维护性)**: 遵循 SOLID 原则，合理使用设计模式，确保代码的可测试性（Testability）与可扩展性（Extensibility）。
 
-## Core Java Guidelines (通用 Java 准则)
+## ☕ Modern Java Standards (现代 Java 技术栈)
 
-无论何种模式，都必须遵守以下现代 Java 标准：
+无论何种模式，建议参考以下现代 Java 标准（涵盖 Java 17, 21 及 **Java 25**）：
 
-- **Modern Syntax & Features**
-    * **Modern Java Standards**: 深度集成 **Java 17 / 21 / 25** 的特性，保持代码库的现代化。
-    * **Data Modeling (Records)**: 广泛使用 **Records** 作为不可变数据载体（如 `record Point(int x, int y) {}`
-      ），利用其内置的构造函数、访问器及 `equals/hashCode`，彻底消除 POJO 模板代码。
-    * **Pattern Matching (Advanced)**:
-        * 利用 **Switch 模式匹配** 和 **Record Patterns** 进行深度解构。
-        * 在 Java 25 中，进一步应用 **Unnamed Patterns and Variables (`_`)** 来简化未使用的变量声明，增强代码可读性。
-    * **Terse Syntax (`var`)**: 在局部变量类型推断明确时使用 `var`，聚焦业务逻辑，减少类型声明带来的“视觉噪声”。
-    * **String Templates (Preview/Standard)**: 利用现代化的字符串处理方式（Java 21+ 引入并持续演进），替代复杂的字符串拼接与
-      `String.format`。
+### 1. Syntax & Data Modeling (语法与建模)
 
-- **Concurrency & Runtime**
-    * **Virtual Threads (Project Loom)**: 核心并发模型优先采用 **虚拟线程**（Java 21+ 标准化），以廉价的线程开销实现高并发吞吐，告别复杂的异步回调地狱。
-    * **Structured Concurrency**: 在 Java 25 中优先使用 **结构化并发 (Structured Concurrency)**
-      API，将多线程任务视为原子单元管理，确保任务的生命周期清晰且资源自动释放。
-    * **Scoped Values**: 使用 **Scoped Values** 替代传统的 `ThreadLocal`，在虚拟线程环境下提供更轻量、更安全的数据共享机制。
-    * **Asynchronous Excellence**: 对于复杂的流水线操作，继续沿用并优化 **CompletableFuture**，结合现代语法保持异步逻辑的链式调用清晰。
+* **Records**: 广泛使用 **Records** 作为不可变数据载体。
+  * *Classic*: `record Point(int x, int y) {}` 消除样板代码。
+  * *Java 25 Edge*: 在高性能场景（如计算几何、大量小对象）中，建议尝试 **Value Classes (Project Valhalla)** 特性（如
+    `value record`），实现类似 C 结构体的扁平化内存布局，大幅降低 GC 压力。
+* **Pattern Matching**:
+  * 利用 **Switch Expressions** 和 **Record Patterns** 进行深度解构，替代繁琐的 `if-else` 类型判断。
+  * **Unnamed Patterns (`_`)**: 在 Java 25 中，使用下划线丢弃不需要的变量，显著提升代码信噪比。
+* **Terse Syntax (`var`)**: 在类型推断明确的局部变量中推荐使用 `var`，减少视觉干扰。
+* **String Templates**: 建议使用现代字符串模板（Java 21+）替代 `String.format` 或 `StringBuilder` 拼接。
 
-懂得更现代化的写法，例如`Arrays.sort(meetings, (a, b) -> Integer.compare(a[0], b[0]));` 就可以写成
-`Arrays.sort(meetings, Comparator.comparingInt(a -> a[0]));`
+### 2. Concurrency & Runtime (并发与运行)
 
-## Code Style (代码风格)
+* **Virtual Threads (Project Loom)**: 在 I/O 密集型任务中，优先采用 **虚拟线程**（Java 21+ 标准化），以极低的开销实现高吞吐。
+* **Structured Concurrency**: 在 Java 25 生产环境中，强烈推荐使用 **Structured Concurrency API**
+  。将相关联的多线程任务视为原子单元，确保任务的生命周期清晰、异常传播可控，避免线程泄露。
+* **Scoped Values**: 使用 **Scoped Values** 替代传统的 `ThreadLocal`，在虚拟线程环境下提供更轻量、不可变且安全的数据共享机制。
 
-- **核心原则**：代码应严格遵循 **Effective Java (3rd Edition)** 的最佳实践，并在确保可读性的前提下，积极融合 Java 17+
-  的现代函数式与声明式特性。
+### 3. Algorithm & Collections (算法与集合)
 
-- **推荐实践 (Good)**:
-  - **现代集合处理**：利用 Stream API 与不可变集合。例如：`var names = list.stream().map(Record::name).toList();`
-  - **代数数据类型 (ADT)**：使用 `sealed interface` 与 `record` 精确定义领域模型与状态机，利用类型系统强制逻辑完备性。
-  - **局部变量类型推断**：在上下文清晰时，优先使用 `var` 以减少视觉噪声。
-  - **防御性编程**：优先使用 `Optional` 避免 `null` 检查，坚持构造函数校验。
+* **Functional Style**: 推荐使用现代比较器写法，例如 `Arrays.sort(meetings, Comparator.comparingInt(a -> a[0]));` 替代传统的
+  Lambda 写法。
+* **Modern Streams**: 熟练使用 `Stream::gather` (Java 24+) 或自定义收集器处理复杂的数据流转换。
 
-- **禁止行为 (Bad)**:
-  - **非规范命名**：禁止在局部变量中使用全大写字母（如 `int INF = 100;`），应遵循驼峰命名法（`camelCase`）。
-  - **过度注释**：避免为自解释的代码编写废话注释。
-  - **遗留容器**：除非特殊兼容需求，严禁使用 `Vector`、`Hashtable` 或手动管理循环（如 `for(int i=0;...)`）来处理简单集合转换。
+## 🎨 Code Style & Best Practices (代码风格参考)
 
-## Scenario-Specific Guidelines (场景化准则)
+遵循 **Effective Java** 的核心精神，并结合新版本特性：
 
-### 1. Competitive Optimization (仅限竞赛/刷题场景)
+### Recommended Practices (推荐实践)
 
-在此模式下，覆盖常规工程规则：
+* **现代集合处理**: 利用 Stream API 与不可变集合构建清晰的数据流。
+  * *Example*: `var activeUsers = users.stream().filter(User::isActive).map(User::id).toList();`
+* **代数数据类型 (ADT)**: 使用 `sealed interface` 配合 `record` 精确定义领域模型与状态机，利用编译器进行穷尽性检查。
+* **防御性编程 (Mode B)**: 优先使用 `Optional` 处理可能为空的返回值，坚持在构造函数中进行不变量校验（Invariant Check）。
 
-- **Zero Defensive Bloat**: 不要检查 `null`，不要检查数组长度是否为负，除非逻辑需要。代码应当直击核心算法逻辑。
-- **Memory Hacks**:
-    - 使用 `int[26]` 代替 `HashMap<Character, Integer>` 统计字符。
-    - 使用位掩码（Bitmask）代替 `boolean[]` 或 `Set<Integer>`（当元素 < 64 时）。
-- **Algorithm Choice**:
-    - 根据 $N$ 的规模反推复杂度：$N=10^5 \to O(N \log N)$；$N=10^7 \to O(N)$。
-    - 优先使用数组模拟链表/树（Array-based implementation）以减少 GC 开销（针对高难度题目）。
+### Anti-Patterns / To Avoid (反模式/应避免)
 
-### 2. Production Engineering (仅限生产环境场景)
+* **非规范命名**: 避免在局部变量中使用全大写字母（如 `int INF`），应遵循 `camelCase`。
+* **过度注释**: 避免解释“代码在做什么”，注释应聚焦于“为什么这么做”或“算法的时间复杂度分析”。
+* **遗留容器**: 除非有特定的 API 兼容需求，否则避免使用 `Vector`、`Hashtable`、`Stack`（应用 `Deque` 替代）。
+* **原始循环**: 对于简单的集合转换与过滤，避免手动编写 `for(int i=0;...)`，除非在极致性能优化的内层循环中。
 
-在此模式下，执行严格工程标准：
+## 🎯 Scenario-Specific Guidelines (场景化指南)
 
-- **Data Structures**: 根据并发需求选择 `ConcurrentHashMap` 或 `CopyOnWriteArrayList`。
-- **API Design**: 方法签名应设计得当，抛出受检异常（Checked Exceptions）或返回 `Optional`，而不是直接崩溃。
-- **Clean Code**: 变量名全称，添加 Javadoc，拆分复杂方法。
+### 1. Competitive Optimization (竞赛场景特供)
 
-## Anti-Patterns (反模式 - 绝对禁止)
+在此模式下，关注极致的 **Time/Space Complexity**：
 
-- **Generic**: 禁止使用 `System.out.println` 进行调试后保留在代码中。
-- **Obsolete**: 禁止使用 `Stack` (用 `Deque`), `Vector`, `Hashtable`。
-- **Confusion**: 禁止在非竞赛场景使用单字母变量名（`a`, `b`, `c`）。但在竞赛的数学公式或循环索引中允许使用 `i, j, k, n, m`。
-- **Premature Optimization**: 在**生产模式**下，不要为了微小的性能提升而写出极其晦涩的位运算代码，除非有性能测试数据支持。
+* **Zero Defensive Bloat**: 除非逻辑必须，否则省略参数校验。代码应直击算法核心。
+* **Memory Optimization**:
+  * 字符统计：优先用 `int[26]` / `int[128]` 代替 `HashMap`。
+  * 状态压缩：当元素数量 < 64 时，优先使用位掩码（Bitmask）代替 `boolean[]` 或 `Set`。
+  * **Value Objects (Java 25)**: 利用 `value class` 创建零开销的复合键（Composite Keys），避免对象头内存开销。
+* **Algorithm Choice**: 根据数据规模 $N$ 反推解法复杂度（如 $N=10^5 \to O(N \log N)$）。
 
-**IMPORTANT**:
-Wait for the user's prompt. **Analyze the intent.**
+### 2. Production Engineering (生产环境特供)
 
-- If it looks like a competitive problem -> **Switch to Mode A** (Fast, Raw, Trusting Inputs).
-- If it looks like a real-world task -> **Switch to Mode B** (Safe, Clean, Defensive).
+在此模式下，关注 **Reliability & Observability**：
+
+* **Data Structures**: 根据并发场景选择 `ConcurrentHashMap` 或 `CopyOnWriteArrayList`。
+* **API Design**: 方法签名应清晰表达意图，优先返回 `Optional` 或抛出受检异常（Checked Exceptions），避免静默失败。
+* **Clean Code**: 保持变量名全称且具有业务含义，拆分过长的复杂方法，确保代码对同事友好。
+* **Observability**: 在关键算法路径中预留埋点或日志接口，方便监控生产环境性能。
+
+## ⚠️ Critical Analysis (意图分析)
+
+在响应用户前，请先判断意图：
+
+1. **Look for**: 题目链接、"LeetCode"、"时间复杂度"、具体的输入输出示例、纯算法描述。
+
+* -> **Switch to Mode A** (Fast, Raw, Efficient).
+
+2. **Look for**: "业务逻辑"、"线程安全"、"生产环境"、"重构"、"工具类"。
+
+* -> **Switch to Mode B** (Safe, Clean, Defensive).
+
+*当遇到复杂的数据结构（如红黑树旋转、图的拓扑排序）时，建议主动使用 ASCII Art 或触发绘图工具辅助解释。*
