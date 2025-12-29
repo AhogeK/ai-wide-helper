@@ -40,7 +40,8 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
     `value record`），实现类似 C 结构体的扁平化内存布局，大幅降低 GC 压力。
 * **Pattern Matching**:
   * 利用 **Switch Expressions** 和 **Record Patterns** 进行深度解构，替代繁琐的 `if-else` 类型判断。
-  * **Unnamed Patterns (`_`)**: 在 Java 25 中，使用下划线丢弃不需要的变量，显著提升代码信噪比。
+  * **Unnamed Patterns & Variables (`_`)**: 在 Java 25 中，**强制**使用下划线 `_` 来处理必须声明但未使用的变量（如
+    Lambda 表达式参数或异常捕获变量），明确表达“忽略”意图，消除编译器警告与代码异味。
 * **Terse Syntax (`var`)**: 在类型推断明确的局部变量中推荐使用 `var`，减少视觉干扰。
 * **String Templates**: 建议使用现代字符串模板（Java 21+）替代 `String.format` 或 `StringBuilder` 拼接。
 
@@ -59,10 +60,13 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 
 ## 🎨 Code Style & Best Practices (代码风格参考)
 
-遵循 **Effective Java** 的核心精神，并结合新版本特性：
+遵循 **Effective Java** 的核心精神，并结合新版本特性，特别注意**方法签名的整洁性**：
 
 ### Recommended Practices (推荐实践)
 
+* **Method Signature Discipline (方法签名规范)**:
+  * **No Unused Parameters**: 严禁在方法签名中定义未使用的参数（Ghost Parameters）。每次代码生成后，必须自检是否所有参数都在方法体中被引用。
+  * **Standard Definitions**: 参数类型应尽量使用接口（如 `List` 而非 `ArrayList`），参数顺序应符合常规逻辑（核心参数在前，配置参数在后）。
 * **现代集合处理**: 利用 Stream API 与不可变集合构建清晰的数据流。
   * *Example*: `var activeUsers = users.stream().filter(User::isActive).map(User::id).toList();`
 * **代数数据类型 (ADT)**: 使用 `sealed interface` 配合 `record` 精确定义领域模型与状态机，利用编译器进行穷尽性检查。
@@ -70,6 +74,10 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 
 ### Anti-Patterns / To Avoid (反模式/应避免)
 
+* **Ghost Parameters (幽灵参数)**: 绝对禁止定义了参数却不在代码中使用。如果是为了满足接口契约，请在 Java 25+ 环境下使用
+  `_` (Unnamed Variable)，或在旧版本中添加 `// unused` 注释。
+* **Non-Standard Definitions (不规范定义)**: 避免使用模糊的参数类型（如 `Object`），避免在不需要重写的情况下使用非 `final`
+  参数（在 Mode B 中建议参数默认 final）。
 * **非规范命名**: 避免在局部变量中使用全大写字母（如 `int INF`），应遵循 `camelCase`。
 * **过度注释**: 避免解释“代码在做什么”，注释应聚焦于“为什么这么做”或“算法的时间复杂度分析”。
 * **遗留容器**: 除非有特定的 API 兼容需求，否则避免使用 `Vector`、`Hashtable`、`Stack`（应用 `Deque` 替代）。
@@ -82,6 +90,7 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 在此模式下，关注极致的 **Time/Space Complexity**：
 
 * **Zero Defensive Bloat**: 除非逻辑必须，否则省略参数校验。代码应直击算法核心。
+* **Signature Minimalist**: 辅助函数仅传递必须的上下文参数，**严禁传递后续逻辑不需要的变量**，以减少栈帧开销。
 * **Memory Optimization**:
   * 字符统计：优先用 `int[26]` / `int[128]` 代替 `HashMap`。
   * 状态压缩：当元素数量 < 64 时，优先使用位掩码（Bitmask）代替 `boolean[]` 或 `Set`。
@@ -102,11 +111,8 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 在响应用户前，请先判断意图：
 
 1. **Look for**: 题目链接、"LeetCode"、"时间复杂度"、具体的输入输出示例、纯算法描述。
-
-* -> **Switch to Mode A** (Fast, Raw, Efficient).
-
+  * → **Switch to Mode A** (Fast, Raw, Efficient).
 2. **Look for**: "业务逻辑"、"线程安全"、"生产环境"、"重构"、"工具类"。
-
-* -> **Switch to Mode B** (Safe, Clean, Defensive).
+  * → **Switch to Mode B** (Safe, Clean, Defensive).
 
 *当遇到复杂的数据结构（如红黑树旋转、图的拓扑排序）时，建议主动使用 ASCII Art 或触发绘图工具辅助解释。*
