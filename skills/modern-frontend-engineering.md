@@ -1,77 +1,100 @@
 ---
 name: modern-frontend-engineering
-description: 构建全能、高性能、生产级的现代前端应用。当用户不仅关注界面样式，更关注系统架构、组件设计模式、状态管理、性能优化（Web Vitals）、可访问性（A11y）以及 TypeScript 类型安全时使用此技能。生成代码应具备工程化思维，兼顾用户体验与开发体验。
+description: 构建全能、高性能、生产级的现代前端应用。涵盖从 Web 到移动端适配，从 Legacy ES 到 Modern ESNext，从 CSR 到全栈 SSR/ISR/Islands 架构。不仅关注界面实现，更精通工程化构建（Vite/Turborepo）、自动化测试、Design Systems 及极致性能优化。
 ---
 
-此技能指导创建健壮、可扩展且用户友好的前端应用程序。超越单纯的“切图”和“样式堆砌”，关注现代 Web 开发的核心工程挑战。
+此技能指导创建健壮、可扩展且用户友好的前端应用程序。超越单纯的 UI 开发，关注现代 Web 开发的核心工程挑战与全链路质量保障。
 
-用户提供需求：一个功能模块、复杂的交互逻辑、重构任务或完整的应用架构。
+用户提供需求：可能是复杂的交互组件、遗留系统重构、跨端应用架构设计，或是性能调优任务。
 
-## Architectural Thinking (架构思维)
+## 🏗 Architectural Thinking (架构思维)
 
-在编写任何代码之前，先确定技术策略：
+在编写任何代码之前，先建立**全景技术策略**：
 
-- **Rendering Strategy (渲染策略)**: 根据内容动态性选择最佳模式。
-    - **SSG (Static)**: 营销页、文档（追求极致 TTFB）。
-    - **SSR (Server-Side)**: 动态内容、SEO 敏感页面。
-    - **CSR (Client-Side)**: 强交互 Dashboard、后台管理系统。
-    - **RSC (React Server Components)**: 现代 Next.js 应用，分离服务端与客户端逻辑，减少 Bundle Size。
-- **State Management (状态管理)**: 拒绝“一把梭”放入 Redux/Zustand。
-    - **Server State**: 使用 TanStack Query (React Query) 或 SWR 管理异步数据（缓存、去重、后台更新）。
-    - **URL State**: 将筛选、分页、搜索参数同步到 URL searchParams，确保可分享性。
-    - **Local State**: 仅将真正的全局交互状态放入全局 Store。
-- **Component Pattern (组件模式)**:
-    - **Compound Components**: 提供灵活的 API（如 `<Select><Select.Item/></Select>`）。
-    - **Headless UI**: 分离逻辑与视图，使用 Radix UI / Headless UI 等库确保 A11y。
-    - **Container/Presentational**: 分离数据获取逻辑与渲染逻辑（如果适用）。
+- **Rendering Strategy (渲染范式)**: 拒绝“唯 CSR 论”，根据内容动态性选择最佳模式。
+  - **SSG (Static)**: 文档、营销页（极致 TTFB）。
+  - **SSR (Server-Side)**: 强 SEO 需求、动态个性化内容（Next.js/Nuxt）。
+  - **ISR (Incremental Static)**: 平衡构建时间与数据实时性。
+  - **Islands Architecture (孤岛架构)**: 使用 **Astro** 等框架，仅对交互区域注水（Hydrate），其余部分保持纯 HTML，显著降低
+    TBT（阻塞时间）。
+  - **RSC (Server Components)**: 现代 React 范式，分离服务端逻辑与客户端交互，实现“零 Bundle”的数据组件。
 
-**CRITICAL**: 优先考虑**可维护性**和**用户体验**。代码不仅要跑通，还要处理 Loading 状态、Error 边界、空状态以及网络竞态问题。
+- **State Management (状态哲学)**:
+  - **Server State**: 优先使用 **TanStack Query** (React/Vue/Solid) 或 **SWR** 处理异步数据（缓存、后台更新、竞态处理）。
+  - **Signal-Based (响应式)**: 在 Vue/Solid/Preact 或 Angular 中，利用 **Signals** 实现细粒度的依赖追踪，避免 React
+    式的过度重渲染。
+  - **URL State**: 将筛选、搜索、分页同步到 URL SearchParams，实现“可分享的状态”。
+  - **Global Store**: 仅当状态跨越路由且非服务端数据时（如全局主题、购物车），才使用 Redux Toolkit/Pinia/Zustand。
 
-然后实现代码（React/Vue/Svelte 等），必须做到：
+- **Component & Design Patterns (组件设计)**:
+  - **Compound Components**: 提供灵活 API（如 `<Select><Select.Item/></Select>`），避免 Props 爆炸。
+  - **Headless UI**: 逻辑与样式分离。使用 **Radix UI / Headless UI / Ark UI** 处理 A11y 与交互逻辑，配合 Tailwind/CSS
+    Modules 处理样式。
+  - **Container/Presentational**: 在复杂场景下分离“数据获取”与“UI 渲染”。
 
-- **Type-Safe**: 严格的 TypeScript 定义，拒绝 `any`。
-- **Accessible**: 语义化 HTML，键盘导航支持，ARIA 属性正确。
-- **Performant**: 避免不必要的重渲染，优化资源加载。
-- **Scalable**: 目录结构清晰，逻辑复用（Hooks/Composables）。
+## 🛠 Engineering & Implementation Guidelines (工程实施准则)
 
-## Engineering & Implementation Guidelines (工程实施准则)
+### 1. Modern Stack & Tooling (技术栈与工具链)
 
-重点关注：
+- **Language**:
+  - 全面拥抱 **TypeScript**。使用 Strict Mode，熟练运用 Generics, Utility Types (`Pick`, `Omit`, `Record`) 及 **Zod**
+    进行运行时校验。
+  - **ES Evolution**: 既要精通 ES6+ (Arrow functions, Destructuring, Modules)，也要掌握 ESNext (Top-level await,
+    Decorators, Private fields)。
+  - **Legacy Compatibility**: 针对旧浏览器场景，懂得配置 **Babel/SWC** target 及 **Polyfills** (Core-js)，理解
+    `nomodule` 模式。
+- **Build Systems**:
+  - **Bundlers**: 熟练配置 **Vite** (Rollup) 或 **Rspack** 替代 Webpack，追求极致的 HMR 速度。
+  - **Monorepo**: 使用 **Turborepo** / **Nx** / **pnpm workspaces** 管理多包项目，复用配置与组件库。
 
-- **Modern Stack & Syntax**:
-    - 全面使用 **TypeScript**。定义清晰的 Interface/Type。利用 Utility Types (`Pick`, `Omit`, `Partial`) 减少重复。
-    - 使用现代 ES 特性：Optional Chaining (`?.`), Nullish Coalescing (`??`), Destructuring。
-    - CSS 方案：推荐 **Tailwind CSS** 以保持样式原子化和一致性，或使用 CSS Modules / Styled Components 避免全局污染。
+### 2. UI & User Experience (界面与体验)
 
-- **Performance & Optimization**:
-    - **Core Web Vitals**: 关注 LCP (最大内容渲染), CLS (累积布局偏移), INP (交互延迟)。
-    - **Code Splitting**: 使用 `React.lazy` 或 `dynamic import` 对非首屏组件进行懒加载。
-    - **Asset Optimization**: 图片使用 `<picture>` 或 `next/image` 自动优化格式 (WebP/AVIF) 和尺寸。避免布局抖动 (Layout
-      Thrashing)。
-    - **Memoization**: 合理使用 `useMemo`, `useCallback`，但不要过度优化。
+- **CSS Strategy**:
+  - 推荐 **Tailwind CSS** (Utility-first) 实现设计系统原子化。
+  - 对于组件库开发，使用 **CSS Modules** 或 **CSS-in-JS** (Styled-components/Emotion) 实现样式隔离。
+  - 掌握现代 CSS 特性：**Container Queries**, **Cascade Layers**, **Subgrid**, **has() 选择器**。
+- **Mobile & Responsive**:
+  - **Mobile-First**: 默认编写移动端样式，通过 `md:`, `lg:` 适配大屏。
+  - **Touch Experience**: 优化触摸目标 (min 44px)，处理 `:hover` 在移动端的粘滞问题，支持手势操作 (UseGesture)。
+  - **PWA**: 合理配置 `manifest.json` 与 Service Workers，提供离线能力与类原生体验。
 
-- **Accessibility (A11y)**:
-    - 这里的 A11y 不是锦上添花，而是必须。
-    - 所有的交互元素（Button, Link, Input）必须有清晰的 focus 状态。
-    - 图片必须有 `alt` 属性，装饰性图片设为 `alt=""`。
-    - 使用语义化标签 (`<nav>`, `<main>`, `<article>`, `<aside>`) 而非全是 `<div>`。
+### 3. Performance & Core Web Vitals (极致性能)
 
-- **Data Fetching & Error Handling**:
-    - 处理生命周期中的所有状态：`idle`, `loading`, `error`, `success`。
-    - 使用 **Error Boundaries** 捕获组件树崩溃，提供降级 UI。
-    - 避免“瀑布流请求 (Waterfall Requests)”，尽可能并行请求数据。
+- **Metrics**: 紧盯 **LCP** (加载速度), **CLS** (视觉稳定性), **INP** (交互响应)。
+- **Optimization Tactics**:
+  - **Code Splitting**: 路由懒加载 (`React.lazy`/Vue Router lazy)，组件级动态导入。
+  - **Resource Hints**: 使用 `<link rel="preload/preconnect">` 优化关键资源。
+  - **Image Opt**: 强制使用 `<picture>` (WebP/AVIF) 或框架自带的 Image 组件 (Next/Nuxt Image) 防止布局抖动。
+  - **Bundle Analysis**: 定期使用 `rollup-plugin-visualizer` 分析产物，剔除 Tree-shaking 失效的依赖。
 
-- **UX Details**:
-    - **Optimistic UI**: 在服务器响应前预先更新 UI，提供即时反馈。
-    - **Skeleton Screens**: 使用骨架屏代替单纯的 Loading Spinner，提升感知性能。
-    - **Form Validation**: 实时校验 (如 Zod + React Hook Form)，提供清晰的错误提示。
+### 4. Quality Assurance (自动化测试)
 
-**NEVER (绝对避免)**:
+- **Testing Pyramid**:
+  - **Unit Test**: 使用 **Vitest** / **Jest** 测试纯逻辑函数与 Hooks。
+  - **Component Test**: 使用 **Testing Library** (React/Vue) 测试组件交互，关注用户可见的行为而非内部状态。
+  - **E2E Test**: 使用 **Playwright** / **Cypress** 覆盖核心业务链路。
+  - **Visual Regression**: 使用 **Storybook** + **Chromatic** 监控 UI 样式回归。
 
-- 避免 `useEffect` 滥用：不要用 Effect 处理本该由 Event Handler 处理的逻辑，或用于派生状态（Derived State）。
-- 避免 Prop Drilling（属性透传）：超过 2 层传递考虑 Context 或 Composition。
-- 避免巨大的 Bundle：不要引入整个 Lodash，只引入需要的函数。
-- 避免忽视移动端体验：Touch 目标大小 (<44px) 和 Hover 状态在移动端的处理。
-- 避免硬编码文本：为 i18n（国际化）预留空间。
+## 🎓 Pedagogical Adaptation (教学适配策略)
 
-**IMPORTANT**: 前端工程不仅仅是写页面，而是构建**应用**。代码应展现出对浏览器原理、网络协议和 JavaScript 运行时的深刻理解。
+根据用户水平动态调整建议的深度：
+
+- **Level 1: Junior/Intermeditae (实战引导)**
+  - 侧重于“最佳实践”和“怎么做”。
+  - *Example*: 推荐直接使用 Tailwind 类名，介绍基础的 Hooks 用法，强调不写 `any`。
+- **Level 2: Senior/Architect (原理深挖)**
+  - 侧重于“为什么”和“底层原理”。
+  - *Example*: 探讨 React Fiber 调度机制，对比 Vue 响应式系统 (Proxy vs Getter/Setter) 的差异，分析 Hydration Mismatch
+    的根本原因，讨论微前端 (Module Federation) 的取舍。
+
+## 🚫 Anti-Patterns (反模式 - 严禁行为)
+
+- **useEffect Abuse**: (React) 不要用 Effect 处理本该由事件回调处理的逻辑，避免数据流混乱。
+- **Prop Drilling**: 超过 3 层传递必须考虑 Context 或 Slot/Composition 模式。
+- **Waterfall Requests**: 避免在父子组件中串行请求数据，应提升至父级并行请求或使用 Prefetch。
+- **Div Soup**: 严禁全是 `<div>`。必须使用语义化标签 (`<main>`, `<article>`, `<nav>`, `<button>`) 以支持 A11y 和 SEO。
+- **Hardcoding**: 严禁硬编码文本，始终使用 i18n key；严禁硬编码 Magic Number/Color，使用 Design Tokens。
+- **Ignoring Errors**: 必须处理 API 的 Error 状态，展示降级 UI，而不是让页面白屏。
+
+**IMPORTANT**: 你的角色不仅仅是写页面，而是**构建应用系统**。代码应展现出对浏览器渲染原理（Reflow/Repaint）、网络协议（HTTP/2,
+HTTP/3, Cache-Control）以及 JavaScript 运行时（Event Loop, Microtasks）的深刻理解。
