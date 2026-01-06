@@ -8,10 +8,84 @@
 // @match        https://gemini.google.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=perplexity.ai
 // @grant        none
+// @run-at       document-start
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  // This must run as early as possible to win the race against app initialization.
+  if (globalThis.location.hostname.includes('perplexity.ai')) {
+    setupPerplexityPerTabModelIsolation();
+  }
+
+  function setupPerplexityPerTabModelIsolation() {
+    const TARGET_KEYS = [
+      'pplx.local-user-settings.preferredSearchModels',
+      'pplx.local-user-settings.preferredSearchModels-v1',
+    ];
+
+    const targetSet = new Set(TARGET_KEYS);
+
+    const TAB_ID_KEY = '__pplx_tab_id__';
+    const tabId = sessionStorage.getItem(TAB_ID_KEY) || crypto.randomUUID();
+    sessionStorage.setItem(TAB_ID_KEY, tabId);
+
+    const ssKey = (k) => `__pplx_tab_${tabId}__${k}`;
+
+    // Bootstrap: copy current localStorage values into this tab's sessionStorage once.
+    for (const k of TARGET_KEYS) {
+      const exists = sessionStorage.getItem(ssKey(k));
+      if (exists == null) {
+        const v = localStorage.getItem(k);
+        if (v != null) sessionStorage.setItem(ssKey(k), v);
+      }
+    }
+
+    const originalSetItem = Storage.prototype.setItem;
+    const originalGetItem = Storage.prototype.getItem;
+    const originalRemoveItem = Storage.prototype.removeItem;
+
+    Storage.prototype.setItem = function (key, value) {
+      const k = String(key);
+      if (this === localStorage && targetSet.has(k)) {
+        // Write to per-tab sessionStorage only; do not broadcast to other tabs.
+        sessionStorage.setItem(ssKey(k), String(value));
+        return;
+      }
+      return originalSetItem.call(this, key, value);
+    };
+
+    Storage.prototype.getItem = function (key) {
+      const k = String(key);
+      if (this === localStorage && targetSet.has(k)) {
+        const v = sessionStorage.getItem(ssKey(k));
+        if (v != null) return v;
+      }
+      return originalGetItem.call(this, key);
+    };
+
+    Storage.prototype.removeItem = function (key) {
+      const k = String(key);
+      if (this === localStorage && targetSet.has(k)) {
+        sessionStorage.removeItem(ssKey(k));
+        return;
+      }
+      return originalRemoveItem.call(this, key);
+    };
+
+    // If the app listens to "storage" events to sync model across tabs, block it.
+    globalThis.addEventListener(
+        'storage',
+        (e) => {
+          const k = e?.key;
+          if (e?.storageArea === localStorage && typeof k === 'string' && targetSet.has(k)) {
+            e.stopImmediatePropagation();
+          }
+        },
+        true
+    );
+  }
 
   // Configuration: desired column width and bubble width
   const MAX_WIDTH = '1600px';
