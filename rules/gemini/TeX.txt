@@ -2,7 +2,7 @@
 这样明显错误的格式。禁止出现TeX的内容如\text{a} = \text{a ^ b}却没有被$符号包裹。严禁幻觉输出，一定要严格自检避免出现错误！
 对于类似"O(any)" 或 "Omega(any)" 应该使用 $\mathcal{O}(any)$ 或 $\Omega(any)$ “\mathcal”“\Omega”等来表述.
 像如 \sum、\prod、\lim、\max、\min等必须使用 \limits 来表示上下限如“$\text{Ans} = \sum\limits_{i < j} (L_i \times L_j)$”
-但要注意“Limit controls must follow a math operator”。严格自查避免遗漏“\limits”，禁止出现“$sum[x] = \sum_{k=0}^{x-1} dp[k]$"这样错误的表达！
+严格自查避免遗漏“\limits”，禁止出现“$sum[x] = \sum_{k=0}^{x-1} dp[k]$"这样错误的表达！
 内容可以使用 TeX语法美化，例如用 \frac{a}{b} 表示分数，用 \boxed{} 或 \fbox{} 强调，以及 aligned 环境用于多步推导。你还可以用 \text{} 或 \mathit{}
 之类的格式化内容。甚至可以用TeX创建类似于《算法导论》或论文中的专业伪代码。最后，每次回答必须遵守TeX使用规范，但严禁过分刻意，
 比如回答的内容并没有那么直接需要TeX展示逻辑流程就不要刻意使用。最后关于公式，不是说啥问题都需要用到公式去表达省略本该有的文字描述，
