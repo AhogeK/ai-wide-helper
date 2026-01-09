@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Perplexity: 宽屏 + 中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 取消tab间的模型同步；Gemini: 宽屏 - 自动跟在请求后的回答规则
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -76,7 +76,6 @@
     .user-query-container > div[style*="flex"], user-query-content > div[style*="flex"] { display: none !important; }
     user-query-content::after { content: ""; display: table; clear: both; }
   `;
-
 
   // ============================================================
   // 1. Helper Functions (Hoisted to Outer Scope)
@@ -570,6 +569,7 @@
 
     function addButton() {
       if (document.querySelector(`.${BUTTON_CLASS}`)) return;
+      // Updated to use optional chaining
       const uploaderContainer = document.querySelector('.uploader-button-container');
       const btn = document.createElement('button');
       btn.className = BUTTON_CLASS;
@@ -607,7 +607,6 @@
     setTimeout(addButton, 3000);
   }
 
-
   // ============================================================
   // 2. Immediate Logic (Network Interceptor, Isolation, CSS Injection)
   // ============================================================
@@ -639,14 +638,19 @@
     const originalGetItem = Storage.prototype.getItem;
     const originalRemoveItem = Storage.prototype.removeItem;
 
+    // [核心修复] setItem 逻辑调整：
+    // 1. 写入 sessionStorage (确保当前 Tab 使用隔离的设置)
+    // 2. 放行 localStorage 写入 (确保新开 Tab 能继承最新设置)
+    // 3. (通过底下的 storage 事件监听拦截，确保其他 OLD Tab 不会被干扰)
     Storage.prototype.setItem = function (key, value) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
         sessionStorage.setItem(ssKey(k), String(value));
-        return;
+        return originalSetItem.call(this, key, value);
       }
       return originalSetItem.call(this, key, value);
     };
+
     Storage.prototype.getItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
@@ -655,14 +659,16 @@
       }
       return originalGetItem.call(this, key);
     };
+
     Storage.prototype.removeItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
         sessionStorage.removeItem(ssKey(k));
-        return;
+        return originalRemoveItem.call(this, key);
       }
       return originalRemoveItem.call(this, key);
     };
+
     globalThis.addEventListener('storage', (e) => {
       const k = e?.key;
       if (e?.storageArea === localStorage && typeof k === 'string' && targetSet.has(k)) {
@@ -898,7 +904,6 @@
     }
   })();
 
-
   // ============================================================
   // 3. UI Initialization (Wait for Body)
   // ============================================================
@@ -924,7 +929,6 @@
       setupGeminiAnswerRules();
     }
   }
-
 
   // ============================================================
   // 4. Bootloader
