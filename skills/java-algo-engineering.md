@@ -24,6 +24,11 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 *触发场景：LeetCode、Codeforces、算法复杂度*
 
 - **Trust Constraints**: 默认假设输入合法。
+- **Context-Aware Scaffolding (场景化脚手架 - 新增)**:
+    - **LeetCode/Snippet Mode**: 当识别为力扣/牛客的核心代码模式时，**严禁**输出 `import` 语句。直接从 `class Solution`
+      或核心方法开始。
+    - **ACM/Full Class Mode**: 当识别为需要 `stdin/stdout` 的场景（如 Codeforces、本地运行），**必须**包含完整的
+      `import java.util.*;` 和 `public class Main`。
 - **Object Phobia (对象恐惧症 - 核心强化)**:
     - **Array-based Structures**: 在图论、链表、树结构中，**严禁**使用 `class Node { Node next; }` 这种产生大量碎片化对象的写法。
     - **Mandatory Implementation**: **必须**使用数组模拟（Array Simulation）。例如：使用 `int[] next`, `int[] prev`,
@@ -87,6 +92,9 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 
 * **Structural Elegance**: 使用 `int[]` 或方向数组 `int[][] dirs` 避免变量爆炸。
 * **Memory Layout Awareness**: 在算法题中，**连续内存 (Arrays)** 永远优于 **分散内存 (Objects)**。
+* **Import Hygiene (引用洁癖 - 新增)**:
+    * **LeetCode**: 零 Import。
+    * **Engineering**: 显式 Import (避免 `.*` 除非是 ACM 模式)。
 
 ### Anti-Patterns (反模式 - 严禁行为)
 
@@ -99,24 +107,31 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 ## 🎯 Intent Recognition & Implicit Adaptation (意图识别与隐性适配)
 
 1. **Context**: 算法题目、时间复杂度 (如 "minimumPairRemoval")。
-    * *Implicit Action*: **Strategy A (Extreme Optimization)**。
+    * *Implicit Action*: **Strategy A (Extreme Optimization + No Import)**。
     * *Execution*: **拒绝**定义 `Node` 类。直接使用 `int[] prev, next` 和 `long[] val` 数组模拟双向链表。使用
-      `record Entry(long sum, int idx)` 配合 `PriorityQueue`。
+      `record Entry` 配合 `PriorityQueue`。**不输出 import 语句**。
     * *Code Example*:
         ```java
-        // 使用数组模拟链表，避免 N 个 Node 对象的 GC 开销和随机内存访问
-        int[] prev = new int[n];
-        int[] next = new int[n]; 
-        Arrays.setAll(prev, i -> i - 1);
-        Arrays.setAll(next, i -> (i + 1 < n) ? i + 1 : -1);
+        class Solution {
+            // 仅在堆中使用 Record，保持轻量
+            private record Entry(long sum, int idx) {}
         
-        // 仅在堆中使用 Record，保持轻量
-        record Entry(long sum, int idx) {}
+            public int minimumPairRemoval(int[] nums) {
+                int n = nums.length;
+                // 使用数组模拟链表，避免 N 个 Node 对象的 GC 开销和随机内存访问
+                int[] prev = new int[n];
+                int[] next = new int[n]; 
+                Arrays.setAll(prev, i -> i - 1);
+                Arrays.setAll(next, i -> (i + 1 < n) ? i + 1 : -1);
+                
+                // ... 核心逻辑 ...
+            }
+        }
         ```
 
-2. **Context**: 业务逻辑、重构。
+2. **Context**: 业务逻辑、重构、工程实现。
     * *Implicit Action*: **Strategy B + Level 2**。
-   * *Execution*: 代码包含 JavaDoc，解释如何利用 `record` 增强不可变性。
+   * *Execution*: 代码包含完整的 `import`，JavaDoc，以及防御性检查。
 
 3. **Context**: "看不懂"、"请解释"。
     * *Implicit Action*: **Level 1 (Teaching)**。
