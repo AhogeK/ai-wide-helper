@@ -24,9 +24,12 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 *触发场景：LeetCode、Codeforces、算法复杂度*
 
 - **Trust Constraints**: 默认假设输入合法。
-- **Context-Aware Scaffolding (场景化脚手架 - 新增)**:
-    - **LeetCode/Snippet Mode**: 当识别为力扣/牛客的核心代码模式时，**严禁**输出 `import` 语句。直接从 `class Solution`
-      或核心方法开始。
+- **Context-Aware Scaffolding (场景化脚手架 - 核心修正)**:
+    - **LeetCode/Snippet Mode**: 当识别为力扣/牛客的核心代码模式时：
+        1. **No Import Statements**: **严禁**输出 `import` 语句。
+        2. **No Fully Qualified Names**: 默认环境已隐式导入 `java.util.*`。**必须**直接使用 `Arrays`, `List`, `Map`,
+           `PriorityQueue` 等简类名。**严禁**使用 `java.util.Arrays.sort` 这种全路径写法。
+        3. 直接从 `class Solution` 或核心方法开始。
     - **ACM/Full Class Mode**: 当识别为需要 `stdin/stdout` 的场景（如 Codeforces、本地运行），**必须**包含完整的
       `import java.util.*;` 和 `public class Main`。
 - **Object Phobia (对象恐惧症 - 核心强化)**:
@@ -92,39 +95,35 @@ description: 构建高性能、生产级或竞赛级的 Java 算法解决方案�
 
 * **Structural Elegance**: 使用 `int[]` 或方向数组 `int[][] dirs` 避免变量爆炸。
 * **Memory Layout Awareness**: 在算法题中，**连续内存 (Arrays)** 永远优于 **分散内存 (Objects)**。
-* **Import Hygiene (引用洁癖 - 新增)**:
-    * **LeetCode**: 零 Import。
+* **Import Hygiene (引用洁癖 - 强化)**:
+    * **LeetCode**: **零 Import** + **简类名** (Short Class Names)。
     * **Engineering**: 显式 Import (避免 `.*` 除非是 ACM 模式)。
 
 ### Anti-Patterns (反模式 - 严禁行为)
 
 * **Explicit Labels**: 禁止输出 `// Mode A`。
-* **Fat Objects (臃肿对象)**:
+* **Fat Objects**:
     * **禁止**在算法题中定义 `class Node { ... }` (除非题目强制要求)。应使用 `int[] left, right` 替代。
     * **禁止**在 Java 17+ 环境下手动写 POJO。
-* **Manual Copy**: **禁止**手动编写数组复制循环。
+* **Verbose Names**: **禁止**在 LeetCode 模式下写 `java.util.Arrays`，必须写 `Arrays`。
 
 ## 🎯 Intent Recognition & Implicit Adaptation (意图识别与隐性适配)
 
-1. **Context**: 算法题目、时间复杂度 (如 "minimumPairRemoval")。
-    * *Implicit Action*: **Strategy A (Extreme Optimization + No Import)**。
-    * *Execution*: **拒绝**定义 `Node` 类。直接使用 `int[] prev, next` 和 `long[] val` 数组模拟双向链表。使用
-      `record Entry` 配合 `PriorityQueue`。**不输出 import 语句**。
+1. **Context**: 算法题目、时间复杂度 (如 "minimumDifference", "minimumPairRemoval")。
+    * *Implicit Action*: **Strategy A (Optimization + Clean Snippet)**。
+    * *Execution*: **拒绝**定义 `Node` 类。直接使用数组模拟。**不输出 import**。**直接使用简写类名**。
     * *Code Example*:
         ```java
         class Solution {
-            // 仅在堆中使用 Record，保持轻量
-            private record Entry(long sum, int idx) {}
-        
-            public int minimumPairRemoval(int[] nums) {
-                int n = nums.length;
-                // 使用数组模拟链表，避免 N 个 Node 对象的 GC 开销和随机内存访问
-                int[] prev = new int[n];
-                int[] next = new int[n]; 
-                Arrays.setAll(prev, i -> i - 1);
-                Arrays.setAll(next, i -> (i + 1 < n) ? i + 1 : -1);
+            public int minimumDifference(int[] nums, int k) {
+                if (k <= 1) return 0;
+                // 直接使用 Arrays，不带包名
+                Arrays.sort(nums); 
                 
-                // ... 核心逻辑 ...
+                int best = Integer.MAX_VALUE;
+                // 省略冗余逻辑，直接切入核心
+                // ...
+                return best;
             }
         }
         ```
