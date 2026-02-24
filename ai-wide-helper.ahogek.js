@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.2.8
 // @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 取消tab间的模型同步；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -605,6 +605,209 @@
     setTimeout(addButton, 500);
     setTimeout(addButton, 1500);
     setTimeout(addButton, 3000);
+
+    function formatRulesForInjection(rules) {
+      return '\n---\n回答规则「仅执行规则，勿输出讨论规则内容」：\n' + rules.trim() + '\n---';
+    }
+
+    function injectRulesToEditor(button, context = 'send') {
+      const storageKey = getCurrentStorageKey();
+      const rules = getRawRules();
+      
+      console.log('[AI Wide] Storage key:', storageKey);
+      console.log('[AI Wide] Rules preview:', rules.substring(0, 50) + '...');
+      console.log('[AI Wide] Rules length:', rules.length);
+      
+      if (!rules || !rules.trim()) {
+        console.log('[AI Wide] No rules to inject');
+        return false;
+      }
+      
+      let targetElement = null;
+      let richTextarea = null;
+      
+      if (context === 'update') {
+        // 对于 Update 按钮，查找编辑模式下的 textarea
+        const editContainer = button.closest('user-query-content');
+        if (editContainer) {
+          targetElement = editContainer.querySelector('textarea.mat-mdc-input-element');
+          console.log('[AI Wide] Found edit textarea:', !!targetElement);
+        }
+      } else {
+        // 对于 Send 按钮，查找底部的 rich-textarea
+        richTextarea = document.querySelector('rich-textarea.textarea');
+        targetElement = document.querySelector('.ql-editor[contenteditable="true"]');
+      }
+      
+      if (!targetElement) {
+        console.log('[AI Wide] No input element found for context:', context);
+        return false;
+      }
+      
+      // 正确获取当前内容
+      let currentContent = '';
+      if (targetElement.tagName === 'TEXTAREA') {
+        currentContent = targetElement.value || '';
+      } else {
+        currentContent = targetElement.textContent || targetElement.innerText || '';
+      }
+      
+      console.log('[AI Wide] Current content length:', currentContent.length);
+      
+      const ruleMarker = '回答规则「仅执行规则，勿输出讨论规则内容」';
+      const hasExistingRules = currentContent.includes(ruleMarker);
+      const formattedRules = formatRulesForInjection(rules);
+      
+      if (hasExistingRules && context !== 'update') {
+        console.log('[AI Wide] Rules already injected (send mode)');
+        return false;
+      }
+      
+      // 在 Update 模式下，先清除旧规则
+      let cleanedContent = currentContent;
+      if (hasExistingRules && context === 'update') {
+        // 提取旧规则内容进行比较
+        const extractOldRulePattern = /---+\n回答规则「仅执行规则，勿输出讨论规则内容」：\n([\s\S]*?)\n---+$/;
+        const oldRuleMatch = currentContent.match(extractOldRulePattern);
+        const oldRuleContent = oldRuleMatch ? oldRuleMatch[1].trim() : '';
+        const newRuleContent = rules.trim();
+        
+        // 如果规则相同，跳过注入
+        if (oldRuleContent === newRuleContent) {
+          console.log('[AI Wide] Rules unchanged, skipping injection');
+          return false;
+        }
+        
+        const rulePattern = /\n?---+\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?---+\n?/g;
+        cleanedContent = currentContent.replace(rulePattern, '').trim();
+        console.log('[AI Wide] Old rules removed, cleaned content length:', cleanedContent.length);
+      }
+      
+      const newContent = cleanedContent + formattedRules;
+      
+      console.log('[AI Wide] New content length:', newContent.length);
+      
+      // 根据元素类型设置内容并触发 React 事件
+      if (targetElement.tagName === 'TEXTAREA') {
+        // 使用 Object.defineProperty 绕过 React 的受控组件检查
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        nativeInputValueSetter.call(targetElement, newContent);
+        
+        // 触发 React 的 onChange 事件
+        const event = new Event('input', { bubbles: true, cancelable: true });
+        targetElement.dispatchEvent(event);
+        
+        // 触发 change 事件
+        const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+        targetElement.dispatchEvent(changeEvent);
+        
+        console.log('[AI Wide] Textarea value set to:', targetElement.value.substring(0, 50) + '...');
+      } else {
+        targetElement.textContent = newContent;
+        targetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+      }
+      
+      if (richTextarea && context !== 'update') {
+        richTextarea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      }
+      
+      console.log('[AI Wide] Rules injected in', context, 'mode, total length:', newContent.length);
+      return true;
+    }
+
+    function interceptSendButton() {
+      const sendButton = document.querySelector('.send-button-container button');
+      if (!sendButton) return false;
+      
+      if (sendButton.dataset.rulesIntercepted === 'true') return true;
+      
+      sendButton.dataset.rulesIntercepted = 'true';
+      
+      // 使用 capturing phase 确保在React处理之前拦截
+      sendButton.addEventListener('click', (e) => {
+        const injected = injectRulesToEditor(sendButton, 'send');
+        if (!injected) return;
+        
+        // 阻止默认行为，防止消息立即发送
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 延迟后触发真正的发送
+        setTimeout(() => {
+          sendButton.click();
+        }, 50);
+        
+      }, true); // capturing phase
+      
+      console.log('[AI Wide] Send button listener attached (capturing)');
+      return true;
+    }
+
+    function interceptUpdateButton() {
+      // 查找 Update 按钮 - 通过文本内容识别
+      const buttons = document.querySelectorAll('button');
+      let updateButton = null;
+      
+      for (const btn of buttons) {
+        if (btn.textContent.trim() === 'Update' && !btn.dataset.rulesIntercepted) {
+          updateButton = btn;
+          break;
+        }
+      }
+      
+      if (!updateButton) return false;
+      
+      updateButton.dataset.rulesIntercepted = 'true';
+      
+      // 使用 capturing phase 确保在React处理之前拦截
+      updateButton.addEventListener('click', (e) => {
+        const injected = injectRulesToEditor(updateButton, 'update');
+        if (!injected) return;
+        
+        // 阻止默认行为
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 延迟后触发真正的更新
+        setTimeout(() => {
+          updateButton.click();
+        }, 50);
+        
+      }, true); // capturing phase
+      
+      console.log('[AI Wide] Update button listener attached (capturing)');
+      return true;
+    }
+
+    function setupInterceptObserver() {
+      let attempts = 0;
+      const maxAttempts = 20;
+      
+      const tryIntercept = () => {
+        if (attempts >= maxAttempts) {
+          console.log('[AI Wide] Max interception attempts reached');
+          return;
+        }
+        
+        interceptSendButton();
+        interceptUpdateButton();
+        
+        attempts++;
+        setTimeout(tryIntercept, 500);
+      };
+      
+      tryIntercept();
+      
+      // 持续监视 Update 按钮（因为编辑模式是动态出现的）
+      const updateButtonObserver = new MutationObserver(() => {
+        interceptUpdateButton();
+      });
+      
+      updateButtonObserver.observe(document.body, {childList: true, subtree: true});
+    }
+    
+    setupInterceptObserver();
   }
 
   // ============================================================
@@ -734,88 +937,6 @@
       return bodyObj;
     }
 
-    function getGeminiRules() {
-      if (!globalThis.location.hostname.includes('gemini.google.com')) return null;
-      try {
-        const path = globalThis.location.pathname;
-        const gemMatch = new RegExp(/\/gem\/([^/]+)/).exec(path);
-        let rawRules = '';
-        if (gemMatch?.[1]) rawRules = localStorage.getItem(`gemini_answer_rules_gem_${gemMatch[1]}`) || '';
-        if (!rawRules) rawRules = localStorage.getItem('gemini_answer_rules_default') || '';
-        if (rawRules.trim()) return formatRules(rawRules);
-      } catch (e) {
-        console.error('[AI Wide] Gemini Rule Read Error:', e);
-      }
-      return null;
-    }
-
-    function injectGeminiFreq(freqStr, formattedRules) {
-      if (!formattedRules) return null;
-      try {
-        const outer = JSON.parse(freqStr);
-        if (!Array.isArray(outer) || !outer[1] || typeof outer[1] !== 'string') return null;
-        const innerStr = outer[1];
-        const inner = JSON.parse(innerStr);
-        let modified = false;
-        if (Array.isArray(inner) && inner.length > 0 && Array.isArray(inner[0])) {
-          const potentialPrompt = inner[0][0];
-          if (typeof potentialPrompt === 'string') {
-            const rulePattern = /---+\s*\n*回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?---+/g;
-            const cleanPrompt = potentialPrompt.replaceAll(rulePattern, '').trim();
-            inner[0][0] = cleanPrompt + formattedRules;
-            modified = true;
-          }
-        }
-        if (modified) {
-          outer[1] = JSON.stringify(inner);
-          return JSON.stringify(outer);
-        }
-      } catch (e) {
-        console.error('[AI Wide] Gemini Freq Parse Error (benign):', e);
-      }
-      return null;
-    }
-
-    function processGeminiBody(body) {
-      const rules = getGeminiRules();
-      if (!rules) return null;
-      let freq = null, type = 'unknown';
-      if (typeof body === 'string') {
-        type = 'string';
-        const p = new URLSearchParams(body);
-        freq = p.get('f.req');
-      } else if (body instanceof URLSearchParams) {
-        type = 'searchparams';
-        freq = body.get('f.req');
-      } else if (body instanceof FormData) {
-        type = 'formdata';
-        freq = body.get('f.req');
-      }
-      if (!freq) return null;
-      const newFreq = injectGeminiFreq(freq, rules);
-      if (!newFreq) return null;
-      if (type === 'string') {
-        const p = new URLSearchParams(body);
-        p.set('f.req', newFreq);
-        return p.toString();
-      } else if (type === 'searchparams' || type === 'formdata') {
-        body.set('f.req', newFreq);
-        return body;
-      }
-      return null;
-    }
-
-    function handleGeminiFetch(urlStr, init) {
-      if (!urlStr.includes('batchexecute') && !urlStr.includes('StreamGenerate')) return false;
-      const newBody = processGeminiBody(init.body);
-      if (newBody) {
-        init.body = newBody;
-        console.log('[AI Widescreen] Gemini Rules Injected');
-        return true;
-      }
-      return false;
-    }
-
     function handlePerplexityFetch(urlStr, init) {
       if (!urlStr.includes('perplexity_ask')) return false;
       if (typeof init.body !== 'string') return false;
@@ -843,7 +964,7 @@
     globalThis.fetch = async function (input, init) {
       const urlStr = getFetchUrl(input);
       if (init?.method === 'POST' && init.body) {
-        if (!handleGeminiFetch(urlStr, init)) handlePerplexityFetch(urlStr, init);
+        handlePerplexityFetch(urlStr, init);
       }
       return originalFetch.call(this, input, init);
     };
@@ -852,12 +973,6 @@
       return originalXhrOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function (body) {
-      if (this._reqUrl && (this._reqUrl.includes('batchexecute') || this._reqUrl.includes('StreamGenerate'))) {
-        if (body) {
-          const newBody = processGeminiBody(body);
-          if (newBody) return originalXhrSend.call(this, newBody);
-        }
-      }
       return originalXhrSend.apply(this, arguments);
     };
     console.log('[AI Widescreen] Unified Interceptor Installed.');
