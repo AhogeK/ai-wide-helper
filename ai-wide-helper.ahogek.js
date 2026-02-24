@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
-// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 取消tab间的模型同步；Gemini: 宽屏 - 自动跟在请求后的回答规则
+// @version      1.2.3
+// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 取消tab间的模型同步；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -760,7 +760,7 @@
         if (Array.isArray(inner) && inner.length > 0 && Array.isArray(inner[0])) {
           const potentialPrompt = inner[0][0];
           if (typeof potentialPrompt === 'string') {
-            const rulePattern = /---\s*\n回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?\n---/g;
+            const rulePattern = /---+\s*\n*回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?---+/g;
             const cleanPrompt = potentialPrompt.replaceAll(rulePattern, '').trim();
             inner[0][0] = cleanPrompt + formattedRules;
             modified = true;
