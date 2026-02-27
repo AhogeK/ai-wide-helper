@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.8
-// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 取消tab间的模型同步；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.2.9
+// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -613,19 +613,19 @@
     function injectRulesToEditor(button, context = 'send') {
       const storageKey = getCurrentStorageKey();
       const rules = getRawRules();
-      
+
       console.log('[AI Wide] Storage key:', storageKey);
       console.log('[AI Wide] Rules preview:', rules.substring(0, 50) + '...');
       console.log('[AI Wide] Rules length:', rules.length);
-      
+
       if (!rules || !rules.trim()) {
         console.log('[AI Wide] No rules to inject');
         return false;
       }
-      
+
       let targetElement = null;
       let richTextarea = null;
-      
+
       if (context === 'update') {
         // 对于 Update 按钮，查找编辑模式下的 textarea
         const editContainer = button.closest('user-query-content');
@@ -638,12 +638,12 @@
         richTextarea = document.querySelector('rich-textarea.textarea');
         targetElement = document.querySelector('.ql-editor[contenteditable="true"]');
       }
-      
+
       if (!targetElement) {
         console.log('[AI Wide] No input element found for context:', context);
         return false;
       }
-      
+
       // 正确获取当前内容
       let currentContent = '';
       if (targetElement.tagName === 'TEXTAREA') {
@@ -651,18 +651,18 @@
       } else {
         currentContent = targetElement.textContent || targetElement.innerText || '';
       }
-      
+
       console.log('[AI Wide] Current content length:', currentContent.length);
-      
+
       const ruleMarker = '回答规则「仅执行规则，勿输出讨论规则内容」';
       const hasExistingRules = currentContent.includes(ruleMarker);
       const formattedRules = formatRulesForInjection(rules);
-      
+
       if (hasExistingRules && context !== 'update') {
         console.log('[AI Wide] Rules already injected (send mode)');
         return false;
       }
-      
+
       // 在 Update 模式下，先清除旧规则
       let cleanedContent = currentContent;
       if (hasExistingRules && context === 'update') {
@@ -671,47 +671,47 @@
         const oldRuleMatch = currentContent.match(extractOldRulePattern);
         const oldRuleContent = oldRuleMatch ? oldRuleMatch[1].trim() : '';
         const newRuleContent = rules.trim();
-        
+
         // 如果规则相同，跳过注入
         if (oldRuleContent === newRuleContent) {
           console.log('[AI Wide] Rules unchanged, skipping injection');
           return false;
         }
-        
+
         const rulePattern = /\n?---+\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?---+\n?/g;
         cleanedContent = currentContent.replace(rulePattern, '').trim();
         console.log('[AI Wide] Old rules removed, cleaned content length:', cleanedContent.length);
       }
-      
+
       const newContent = cleanedContent + formattedRules;
-      
+
       console.log('[AI Wide] New content length:', newContent.length);
-      
+
       // 根据元素类型设置内容并触发 React 事件
       if (targetElement.tagName === 'TEXTAREA') {
         // 使用 Object.defineProperty 绕过 React 的受控组件检查
         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
         nativeInputValueSetter.call(targetElement, newContent);
-        
+
         // 触发 React 的 onChange 事件
-        const event = new Event('input', { bubbles: true, cancelable: true });
+        const event = new Event('input', {bubbles: true, cancelable: true});
         targetElement.dispatchEvent(event);
-        
+
         // 触发 change 事件
-        const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+        const changeEvent = new Event('change', {bubbles: true, cancelable: true});
         targetElement.dispatchEvent(changeEvent);
-        
+
         console.log('[AI Wide] Textarea value set to:', targetElement.value.substring(0, 50) + '...');
       } else {
         targetElement.textContent = newContent;
-        targetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-        targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+        targetElement.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
+        targetElement.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
       }
-      
+
       if (richTextarea && context !== 'update') {
-        richTextarea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        richTextarea.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
       }
-      
+
       console.log('[AI Wide] Rules injected in', context, 'mode, total length:', newContent.length);
       return true;
     }
@@ -719,27 +719,27 @@
     function interceptSendButton() {
       const sendButton = document.querySelector('.send-button-container button');
       if (!sendButton) return false;
-      
+
       if (sendButton.dataset.rulesIntercepted === 'true') return true;
-      
+
       sendButton.dataset.rulesIntercepted = 'true';
-      
+
       // 使用 capturing phase 确保在React处理之前拦截
       sendButton.addEventListener('click', (e) => {
         const injected = injectRulesToEditor(sendButton, 'send');
         if (!injected) return;
-        
+
         // 阻止默认行为，防止消息立即发送
         e.preventDefault();
         e.stopPropagation();
-        
+
         // 延迟后触发真正的发送
         setTimeout(() => {
           sendButton.click();
         }, 50);
-        
+
       }, true); // capturing phase
-      
+
       console.log('[AI Wide] Send button listener attached (capturing)');
       return true;
     }
@@ -748,34 +748,34 @@
       // 查找 Update 按钮 - 通过文本内容识别
       const buttons = document.querySelectorAll('button');
       let updateButton = null;
-      
+
       for (const btn of buttons) {
         if (btn.textContent.trim() === 'Update' && !btn.dataset.rulesIntercepted) {
           updateButton = btn;
           break;
         }
       }
-      
+
       if (!updateButton) return false;
-      
+
       updateButton.dataset.rulesIntercepted = 'true';
-      
+
       // 使用 capturing phase 确保在React处理之前拦截
       updateButton.addEventListener('click', (e) => {
         const injected = injectRulesToEditor(updateButton, 'update');
         if (!injected) return;
-        
+
         // 阻止默认行为
         e.preventDefault();
         e.stopPropagation();
-        
+
         // 延迟后触发真正的更新
         setTimeout(() => {
           updateButton.click();
         }, 50);
-        
+
       }, true); // capturing phase
-      
+
       console.log('[AI Wide] Update button listener attached (capturing)');
       return true;
     }
@@ -783,30 +783,30 @@
     function setupInterceptObserver() {
       let attempts = 0;
       const maxAttempts = 20;
-      
+
       const tryIntercept = () => {
         if (attempts >= maxAttempts) {
           console.log('[AI Wide] Max interception attempts reached');
           return;
         }
-        
+
         interceptSendButton();
         interceptUpdateButton();
-        
+
         attempts++;
         setTimeout(tryIntercept, 500);
       };
-      
+
       tryIntercept();
-      
+
       // 持续监视 Update 按钮（因为编辑模式是动态出现的）
       const updateButtonObserver = new MutationObserver(() => {
         interceptUpdateButton();
       });
-      
+
       updateButtonObserver.observe(document.body, {childList: true, subtree: true});
     }
-    
+
     setupInterceptObserver();
   }
 
@@ -826,20 +826,37 @@
     ];
     const targetSet = new Set(TARGET_KEYS);
     const TAB_ID_KEY = '__pplx_tab_id__';
-    const tabId = sessionStorage.getItem(TAB_ID_KEY) || crypto.randomUUID();
-    sessionStorage.setItem(TAB_ID_KEY, tabId);
-    const ssKey = (k) => `__pplx_tab_${tabId}__${k}`;
 
-    for (const k of TARGET_KEYS) {
-      const exists = sessionStorage.getItem(ssKey(k));
-      if (exists == null) {
-        const v = localStorage.getItem(k);
-        if (v != null) sessionStorage.setItem(ssKey(k), v);
-      }
-    }
+    // 保存原始 Storage 方法（必须在重定义之前保存）
     const originalSetItem = Storage.prototype.setItem;
     const originalGetItem = Storage.prototype.getItem;
     const originalRemoveItem = Storage.prototype.removeItem;
+
+    const tabId = originalGetItem.call(sessionStorage, TAB_ID_KEY) || crypto.randomUUID();
+    originalSetItem.call(sessionStorage, TAB_ID_KEY, tabId);
+    const ssKey = (k) => `__pplx_tab_${tabId}__${k}`;
+
+    // 检查是否是真正的新标签页（通过检查是否存在任何模型相关的 sessionStorage key）
+    const isNewTab = !TARGET_KEYS.some(k => {
+      const ssVal = originalGetItem.call(sessionStorage, ssKey(k));
+      return ssVal !== null;
+    });
+
+    console.log('[AI Wide] Tab isolation initialized. TabId:', tabId.substring(0, 8) + '..., IsNewTab:', isNewTab);
+
+    // 对于新标签页，强制从 localStorage 复制模型设置
+    // 这会覆盖 Perplexity 可能设置的默认值
+    if (isNewTab) {
+      for (const k of TARGET_KEYS) {
+        const v = originalGetItem.call(localStorage, k);
+        if (v != null) {
+          originalSetItem.call(sessionStorage, ssKey(k), v);
+          console.log('[AI Wide] Copied model setting to new tab:', k, '->', v.substring(0, 50));
+        }
+      }
+    } else {
+      console.log('[AI Wide] Existing tab detected, using sessionStorage values');
+    }
 
     // [核心修复] setItem 逻辑调整：
     // 1. 写入 sessionStorage (确保当前 Tab 使用隔离的设置)
@@ -848,7 +865,7 @@
     Storage.prototype.setItem = function (key, value) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        sessionStorage.setItem(ssKey(k), String(value));
+        originalSetItem.call(sessionStorage, ssKey(k), String(value));
         return originalSetItem.call(this, key, value);
       }
       return originalSetItem.call(this, key, value);
@@ -857,7 +874,7 @@
     Storage.prototype.getItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        const v = sessionStorage.getItem(ssKey(k));
+        const v = originalGetItem.call(sessionStorage, ssKey(k));
         if (v != null) return v;
       }
       return originalGetItem.call(this, key);
@@ -866,7 +883,7 @@
     Storage.prototype.removeItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        sessionStorage.removeItem(ssKey(k));
+        originalRemoveItem.call(sessionStorage, ssKey(k));
         return originalRemoveItem.call(this, key);
       }
       return originalRemoveItem.call(this, key);
