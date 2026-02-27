@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.9
-// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.3.0
+// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型)；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -635,7 +635,11 @@
         }
       } else {
         // 对于 Send 按钮，查找底部的 rich-textarea
-        richTextarea = document.querySelector('rich-textarea.textarea');
+        // eslint-disable-next-line no-undef - 自定义web组件
+        richTextarea = document.querySelector('rich-textarea');
+        if (!richTextarea) {
+          richTextarea = document.querySelector('[data-test-id="rich-textarea"]');
+        }
         targetElement = document.querySelector('.ql-editor[contenteditable="true"]');
       }
 
@@ -645,7 +649,7 @@
       }
 
       // 正确获取当前内容
-      let currentContent = '';
+      let currentContent;
       if (targetElement.tagName === 'TEXTAREA') {
         currentContent = targetElement.value || '';
       } else {
@@ -826,6 +830,7 @@
     ];
     const targetSet = new Set(TARGET_KEYS);
     const TAB_ID_KEY = '__pplx_tab_id__';
+    const SPACE_MEMORY_KEY_PREFIX = 'pplx.space-model-memory-v1.';
 
     // 保存原始 Storage 方法（必须在重定义之前保存）
     const originalSetItem = Storage.prototype.setItem;
@@ -844,14 +849,61 @@
 
     console.log('[AI Wide] Tab isolation initialized. TabId:', tabId.substring(0, 8) + '..., IsNewTab:', isNewTab);
 
-    // 对于新标签页，强制从 localStorage 复制模型设置
-    // 这会覆盖 Perplexity 可能设置的默认值
+    // 辅助函数：获取当前 Space ID
+    function getCurrentSpaceId() {
+      const urlMatch = /\/spaces\/.*-([a-zA-Z0-9_.-]+)$/.exec(globalThis.location.pathname);
+      if (urlMatch) return urlMatch[1];
+      return 'default';
+    }
+
+    // 辅助函数：获取 Space 特定的模型记忆 key
+    function getSpaceMemoryKey(spaceId) {
+      return `${SPACE_MEMORY_KEY_PREFIX}${spaceId}`;
+    }
+
+    // 辅助函数：保存模型到 Space 记忆
+    function saveModelToSpaceMemory(modelValue) {
+      const spaceId = getCurrentSpaceId();
+      const memoryKey = getSpaceMemoryKey(spaceId);
+      try {
+        originalSetItem.call(localStorage, memoryKey, String(modelValue));
+        console.log('[AI Wide] Saved model to space memory:', spaceId, '->', modelValue.substring(0, 50));
+      } catch (e) {
+        console.error('[AI Wide] Failed to save space memory:', e);
+      }
+    }
+
+    // 辅助函数：从 Space 记忆读取模型
+    function getModelFromSpaceMemory(spaceId) {
+      const memoryKey = getSpaceMemoryKey(spaceId);
+      try {
+        return originalGetItem.call(localStorage, memoryKey);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // 对于新标签页，优先使用 Space 特定的模型记忆
     if (isNewTab) {
-      for (const k of TARGET_KEYS) {
-        const v = originalGetItem.call(localStorage, k);
-        if (v != null) {
-          originalSetItem.call(sessionStorage, ssKey(k), v);
-          console.log('[AI Wide] Copied model setting to new tab:', k, '->', v.substring(0, 50));
+      const spaceId = getCurrentSpaceId();
+      const spaceMemory = getModelFromSpaceMemory(spaceId);
+
+      if (spaceMemory) {
+        // 使用 Space 特定的记忆
+        console.log('[AI Wide] Using space-specific model memory for:', spaceId);
+        for (const k of TARGET_KEYS) {
+          originalSetItem.call(sessionStorage, ssKey(k), spaceMemory);
+          // 同时更新 localStorage 的通用设置
+          originalSetItem.call(localStorage, k, spaceMemory);
+        }
+      } else {
+        // 回退到通用的 preferredSearchModels
+        console.log('[AI Wide] No space memory found, using global settings for:', spaceId);
+        for (const k of TARGET_KEYS) {
+          const v = originalGetItem.call(localStorage, k);
+          if (v != null) {
+            originalSetItem.call(sessionStorage, ssKey(k), v);
+          }
         }
       }
     } else {
@@ -860,12 +912,16 @@
 
     // [核心修复] setItem 逻辑调整：
     // 1. 写入 sessionStorage (确保当前 Tab 使用隔离的设置)
-    // 2. 放行 localStorage 写入 (确保新开 Tab 能继承最新设置)
-    // 3. (通过底下的 storage 事件监听拦截，确保其他 OLD Tab 不会被干扰)
+    // 2. 保存到 Space 特定的记忆 (实现跨 Tab 的 Space 级记忆)
+    // 3. 放行 localStorage 写入 (确保新开 Tab 能继承最新设置)
+    // 4. (通过底下的 storage 事件监听拦截，确保其他 OLD Tab 不会被干扰)
     Storage.prototype.setItem = function (key, value) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        originalSetItem.call(sessionStorage, ssKey(k), String(value));
+        const strValue = String(value);
+        originalSetItem.call(sessionStorage, ssKey(k), strValue);
+        // 同时保存到 Space 特定的记忆
+        saveModelToSpaceMemory(strValue);
         return originalSetItem.call(this, key, value);
       }
       return originalSetItem.call(this, key, value);
@@ -949,8 +1005,11 @@
         return `${cleaned}${formattedRules}`;
       };
       if (bodyObj.query_str) bodyObj.query_str = applyRules(bodyObj.query_str);
-      if (bodyObj?.params?.dsl_query) bodyObj.params.dsl_query = applyRules(bodyObj.params.dsl_query);
-      if (bodyObj.params) bodyObj.params.source = 'ios';
+      const params = bodyObj.params;
+      if (params && params.dsl_query) {
+        params.dsl_query = applyRules(params.dsl_query);
+      }
+      if (params) params.source = 'ios';
       return bodyObj;
     }
 
@@ -967,8 +1026,9 @@
           return true;
         } else {
           let bodyObj = JSON.parse(init.body);
-          if (bodyObj.params) {
-            bodyObj.params.source = 'ios';
+          const params = bodyObj && bodyObj.params;
+          if (params) {
+            params.source = 'ios';
             init.body = JSON.stringify(bodyObj);
           }
         }
@@ -986,7 +1046,6 @@
       return originalFetch.call(this, input, init);
     };
     XMLHttpRequest.prototype.open = function (method, url) {
-      this._reqUrl = (typeof url === 'string' ? url : url?.toString() || '');
       return originalXhrOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function (body) {
