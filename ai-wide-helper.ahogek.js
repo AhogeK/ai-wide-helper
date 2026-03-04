@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Perplexity: 宽屏 + 输入框侧边栏中文字体 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型)；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.3.1
+// @description  Perplexity: 宽屏 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型)；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -21,11 +21,6 @@
   const USER_BUBBLE_WIDTH = '760px';
 
   const perplexityCSS = `
-    /* === Fix Chinese in input and sidebar === */
-    [contenteditable], input, textarea, .font-sans {
-      font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif !important;
-    }
-
     /* === Widescreen === */
     .max-w-threadContentWidth, .max-w-3xl, .max-w-4xl, .max-w-5xl, .max-w-6xl {
       width: auto !important; max-width: 95% !important;
