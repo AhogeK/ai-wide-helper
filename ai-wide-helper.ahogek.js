@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
-// @description  Perplexity: 宽屏 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型)；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.4.0
+// @description  Perplexity: 宽屏 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -29,6 +29,13 @@
       .max-w-threadContentWidth, .max-w-3xl, .max-w-4xl, .max-w-5xl, .max-w-6xl {
         max-width: ${MAX_WIDTH} !important;
       }
+    }
+
+    /* === Chinese Font Fix === */
+    /* 修复中文字体显示问题：覆盖 cjk 复合变量，将简体字体排在日文字体之前 */
+    :root {
+      --pplx-cjk-sans: var(--pplx-zh-hans-sans), var(--pplx-zh-hant-sans), var(--pplx-zh-hk-sans), var(--pplx-zh-mo-sans), var(--pplx-ja-sans), var(--pplx-ko-sans);
+      --pplx-cjk-serif: var(--pplx-zh-hans-serif), var(--pplx-zh-hant-serif), var(--pplx-zh-hk-serif), var(--pplx-zh-mo-serif), var(--pplx-ja-serif), var(--pplx-ko-serif);
     }
 
     /* === Modal Optimization === */
