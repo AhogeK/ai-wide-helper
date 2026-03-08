@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
-// @description  Perplexity: 宽屏 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.0
+// @description  Perplexity: 宽屏 + 侧边状态面板(悬停展开，显示配额/连接器/模型历史) + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -19,6 +19,303 @@
   // ============================================================
   const MAX_WIDTH = '1600px';
   const USER_BUBBLE_WIDTH = '760px';
+
+  const perplexityStatusCSS = `
+    /* === Perplexity Status HUD - Slide Out === */
+    #ppx-status-container {
+      position: fixed !important;
+      top: 50% !important;
+      right: 0 !important;
+      transform: translateY(-50%) !important;
+      z-index: 999999 !important;
+      display: flex !important;
+      flex-direction: row-reverse !important;
+      align-items: center !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    #ppx-status-container:hover #ppx-hud {
+      transform: translateX(0) !important;
+      opacity: 1 !important;
+    }
+    #ppx-status-container:hover #ppx-tab {
+      border-radius: 0 0 0 8px !important;
+    }
+    #ppx-tab {
+      width: 12px !important;
+      height: 80px !important;
+      background: rgba(15, 23, 42, 0.8) !important;
+      border-radius: 8px 0 0 8px !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: all 0.3s ease !important;
+      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3) !important;
+    }
+    #ppx-tab::before {
+      content: '' !important;
+      width: 3px !important;
+      height: 24px !important;
+      background: rgba(255, 255, 255, 0.3) !important;
+      border-radius: 2px !important;
+    }
+    #ppx-hud {
+      background: rgba(15, 23, 42, 0.98) !important;
+      backdrop-filter: blur(12px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+      border-radius: 12px 0 0 12px !important;
+      padding: 16px !important;
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5) !important;
+      font-family: -apple-system, system-ui, sans-serif !important;
+      user-select: none !important;
+      width: 280px !important;
+      max-height: 80vh !important;
+      overflow-y: auto !important;
+      transform: translateX(100%) !important;
+      opacity: 0 !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+      scrollbar-width: thin !important;
+      scrollbar-color: rgba(255,255,255,0.2) transparent !important;
+    }
+    #ppx-hud::-webkit-scrollbar { width: 4px !important; }
+    #ppx-hud::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.2) !important;
+      border-radius: 2px !important;
+    }
+    .px-sec {
+      background: rgba(255, 255, 255, 0.03) !important;
+      border: 1px solid rgba(255, 255, 255, 0.05) !important;
+      border-radius: 10px !important;
+      padding: 12px !important;
+      margin-bottom: 12px !important;
+    }
+    .px-sec:last-child { margin-bottom: 0 !important; }
+    .px-sec-title {
+      font-size: 11px !important;
+      color: #64748b !important;
+      text-transform: uppercase !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.5px !important;
+      margin-bottom: 10px !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+    }
+    .px-grid-2 {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 8px !important;
+    }
+    .px-item {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 2px !important;
+    }
+    .px-label {
+      font-size: 10px !important;
+      color: #94a3b8 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.3px !important;
+    }
+    .px-value {
+      font-size: 16px !important;
+      font-weight: 700 !important;
+      color: #f8fafc !important;
+      font-family: 'SF Mono', monospace !important;
+    }
+    .px-value.warn { color: #fbbf24 !important; }
+    .px-value.zero { color: #ef4444 !important; }
+    .px-value.unlimited { color: #10b981 !important; }
+    .px-sub {
+      font-size: 10px !important;
+      color: #64748b !important;
+      margin-top: 2px !important;
+    }
+    .px-divider {
+      height: 1px !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+      margin: 8px 0 !important;
+    }
+    .px-conn-list {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 4px !important;
+      font-size: 11px !important;
+    }
+    .px-conn-item {
+      padding: 2px 6px !important;
+      border-radius: 4px !important;
+      background: rgba(16, 185, 129, 0.15) !important;
+      color: #10b981 !important;
+      border: 1px solid rgba(16, 185, 129, 0.3) !important;
+    }
+    .px-conn-item.off {
+      background: rgba(100, 116, 139, 0.15) !important;
+      color: #64748b !important;
+      border-color: rgba(100, 116, 139, 0.3) !important;
+    }
+    .px-src-grid {
+      display: grid !important;
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 4px !important;
+    }
+    .px-src-item {
+      display: flex !important;
+      justify-content: space-between !important;
+      font-size: 10px !important;
+      padding: 3px 6px !important;
+      background: rgba(255, 255, 255, 0.02) !important;
+      border-radius: 4px !important;
+    }
+    .px-src-name { color: #94a3b8 !important; }
+    .px-src-val {
+      font-family: monospace !important;
+      color: #818cf8 !important;
+      font-weight: 600 !important;
+    }
+    .px-model-box {
+      padding: 8px !important;
+      border-radius: 8px !important;
+      border: 1px solid !important;
+      margin-bottom: 8px !important;
+    }
+    .px-model-box.ok { border-color: rgba(16, 185, 129, 0.3) !important; background: rgba(16, 185, 129, 0.05) !important; }
+    .px-model-box.warn { border-color: rgba(239, 68, 68, 0.3) !important; background: rgba(239, 68, 68, 0.05) !important; }
+    .px-model-box.wait { border-color: rgba(100, 116, 139, 0.3) !important; background: rgba(100, 116, 139, 0.05) !important; }
+    .px-model-status {
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      margin-bottom: 6px !important;
+    }
+    .px-model-status.ok { color: #10b981 !important; }
+    .px-model-status.warn { color: #ef4444 !important; }
+    .px-model-status.wait { color: #94a3b8 !important; }
+    .px-model-row {
+      font-size: 10px !important;
+      color: #64748b !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      margin-bottom: 2px !important;
+    }
+    .px-model-val {
+      font-family: monospace !important;
+      color: #cbd5e1 !important;
+      max-width: 120px !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+    }
+    .px-actions {
+      display: flex !important;
+      gap: 8px !important;
+      margin-top: 12px !important;
+    }
+    .px-btn {
+      flex: 1 !important;
+      padding: 6px 12px !important;
+      border-radius: 6px !important;
+      border: none !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      cursor: pointer !important;
+      transition: all 0.2s !important;
+    }
+    .px-btn.primary {
+      background: #3b82f6 !important;
+      color: white !important;
+    }
+    .px-btn.primary:hover { background: #2563eb !important; }
+    .px-btn.secondary {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: #cbd5e1 !important;
+    }
+    .px-btn.secondary:hover { background: rgba(255, 255, 255, 0.15) !important; }
+    .px-total {
+      text-align: center !important;
+      font-size: 11px !important;
+      color: #64748b !important;
+      padding-top: 8px !important;
+      border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    .px-total strong {
+      color: #e2e8f0 !important;
+      font-family: monospace !important;
+    }
+    .px-loading {
+      text-align: center !important;
+      color: #64748b !important;
+      padding: 20px !important;
+      font-size: 12px !important;
+    }
+    .px-sp {
+      animation: px-spin 1s linear infinite !important;
+      display: inline-block !important;
+    }
+    @keyframes px-spin {
+      100% { transform: rotate(360deg) !important; }
+    }
+    /* Modal Styles */
+    .px-m-bg {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      background: rgba(0, 0, 0, 0.85) !important;
+      z-index: 1000000 !important;
+      backdrop-filter: blur(4px) !important;
+    }
+    .px-m {
+      position: fixed !important;
+      top: 50% !important;
+      left: 50% !important;
+      transform: translate(-50%, -50%) !important;
+      width: 90% !important;
+      max-width: 700px !important;
+      background: #1e293b !important;
+      border-radius: 16px !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7) !important;
+      font-family: -apple-system, system-ui, sans-serif !important;
+      overflow: hidden !important;
+      max-height: 90vh !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    .px-mh {
+      padding: 20px !important;
+      background: rgba(255, 255, 255, 0.03) !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+    }
+    .px-mt {
+      font-size: 18px !important;
+      font-weight: 700 !important;
+      color: #f1f5f9 !important;
+    }
+    .px-mc { display: flex !important; gap: 8px !important; }
+    .px-mb {
+      padding: 24px !important;
+      overflow-y: auto !important;
+    }
+    .px-m-close {
+      width: 32px !important;
+      height: 32px !important;
+      border-radius: 8px !important;
+      border: none !important;
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: #fff !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 16px !important;
+      transition: background 0.2s !important;
+    }
+    .px-m-close:hover { background: rgba(255, 255, 255, 0.2) !important; }
+  `;
 
   const perplexityCSS = `
     /* === Widescreen === */
@@ -64,7 +361,7 @@
     }
     div.bottom-md.right-md.fixed:hover { opacity: 1 !important; }
     div.bottom-md.right-md.fixed > div.flex { flex-direction: row !important; }
-  `;
+  ` + perplexityStatusCSS;
 
   const geminiCSS = `
     .chat-history-scroll-container { width: 100% !important; max-width: 100% !important; }
@@ -177,6 +474,486 @@
       }
     });
     observer.observe(document.body, {childList: true, subtree: true});
+  }
+
+  function setupPerplexityStatusMonitor() {
+    const LS_KEY_MODEL = 'ppx_status_model_monitor';
+    let monitorData = {d: null, h: [], t: null};
+    try {
+      const saved = localStorage.getItem(LS_KEY_MODEL);
+      if (saved) monitorData = JSON.parse(saved);
+    } catch (_) {
+    }
+
+    function saveMonitorData() {
+      try {
+        localStorage.setItem(LS_KEY_MODEL, JSON.stringify(monitorData));
+      } catch (_) {
+      }
+    }
+
+    function extractModelFromText(text) {
+      if (!text || !text.includes('display_model')) return null;
+      try {
+        const j = JSON.parse(text);
+
+        function walk(v) {
+          if (!v || typeof v !== 'object') return null;
+          if (typeof v.display_model === 'string') return {d: v.display_model};
+          for (const k in v) {
+            const result = walk(v[k]);
+            if (result) return result;
+          }
+          return null;
+        }
+
+        const result = walk(j);
+        if (result) return result;
+      } catch (e) {
+      }
+      const dm = /"display_model"\s*:\s*"([^"]+)"/.exec(text);
+      if (dm) return {d: dm[1]};
+      return null;
+    }
+
+    const origFetch = window.fetch;
+    window.fetch = function (...args) {
+      return origFetch.apply(this, args).then(r => {
+        try {
+          r.clone().text().then(t => {
+            const m = extractModelFromText(t);
+            // 只关注 display_model（实际收到的模型）
+            if (m && m.d) {
+              if (monitorData.d !== m.d) {
+                monitorData.d = m.d;
+                monitorData.t = Date.now();
+                // 保存到历史
+                if (!monitorData.h.length || monitorData.h[0].d !== monitorData.d) {
+                  monitorData.h.unshift({d: monitorData.d, t: monitorData.t});
+                  if (monitorData.h.length > 5) monitorData.h.pop();
+                }
+                saveMonitorData();
+                updateHUDContent();
+              }
+            }
+          }).catch(() => {
+          });
+        } catch (_) {
+        }
+        return r;
+      });
+    };
+
+    function removeExistingHUD() {
+      const ex = document.getElementById('ppx-status-container');
+      if (ex) ex.remove();
+    }
+
+    let cachedData = null;
+
+    function fetchStatusData() {
+      return Promise.all([
+        fetch('/rest/rate-limit/all').then(r => r.json()),
+        fetch('/rest/user/settings').then(r => r.json())
+      ]).then(([rateLimit, userSettings]) => {
+        cachedData = [rateLimit, userSettings];
+        return cachedData;
+      });
+    }
+
+    function formatVal(val, isWarn) {
+      if (val === null || val === undefined) return '<span class="px-value">∞</span>';
+      if (val === 0) return `<span class="px-value zero">${val}</span>`;
+      if (val === 'unlimited' || val > 999) return `<span class="px-value unlimited">∞</span>`;
+      return `<span class="px-value${isWarn ? ' warn' : ''}">${val}</span>`;
+    }
+
+    function getModelStatusHTML() {
+      // 简化版：只显示上次使用的模型，不跟踪"已选择"
+      // 这样避免悖论：不发查询时显示什么已选择
+
+      const hasModel = !!monitorData.d;
+
+      if (!hasModel) {
+        return `
+          <div class="px-model-box wait">
+            <div class="px-model-status wait">上次使用</div>
+            <div class="px-model-row" style="justify-content:center;padding:8px 0">
+              <span style="color:#64748b;font-size:12px">发送查询后显示</span>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="px-model-box ok">
+          <div class="px-model-status ok">上次使用</div>
+          <div class="px-model-row"><span style="color:#94a3b8">模型</span><span class="px-model-val" title="${monitorData.d}">${monitorData.d}</span></div>
+          <div class="px-model-row"><span style="color:#94a3b8">时间</span><span class="px-model-val">${monitorData.t ? new Date(monitorData.t).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      }) : '—'}</span></div>
+        </div>`;
+    }
+
+    function generateHUDContent(rateLimit, userSettings) {
+      const proWarn = rateLimit.remaining_pro !== null && rateLimit.remaining_pro < 10;
+      const researchWarn = rateLimit.remaining_research !== null && rateLimit.remaining_research < 5;
+      const labsWarn = rateLimit.remaining_labs !== null && rateLimit.remaining_labs < 5;
+      const uploadWarn = userSettings.upload_limit !== null && userSettings.upload_limit < 10;
+
+      const connectedConns = userSettings.connectors?.connectors?.filter(c => c.connected) || [];
+      const connHTML = connectedConns.length ?
+          connectedConns.slice(0, 4).map(c => `<span class="px-conn-item">${c.name.replace(/_mcp_|_direct|_merge|_alt|_cashmere/g, '')}</span>`).join('') +
+          (connectedConns.length > 4 ? `<span class="px-conn-item off">+${connectedConns.length - 4}</span>` : '') :
+          '<span class="px-conn-item off">未连接</span>';
+
+      const sourcesWithLimits = [];
+      if (rateLimit.sources?.source_to_limit) {
+        Object.keys(rateLimit.sources.source_to_limit).forEach(k => {
+          const s = rateLimit.sources.source_to_limit[k];
+          if (s.monthly_limit > 0 && s.monthly_limit !== null) {
+            sourcesWithLimits.push({
+              name: k.replace(/_mcp_cashmere|_mcp_merge|_direct/g, '').replace(/_/g, ''),
+              val: `${s.remaining}/${s.monthly_limit}`
+            });
+          }
+        });
+      }
+
+      const srcHTML = sourcesWithLimits.length ?
+          sourcesWithLimits.slice(0, 6).map(s => `<div class="px-src-item"><span class="px-src-name">${s.name}</span><span class="px-src-val">${s.val}</span></div>`).join('') :
+          '<div class="px-src-item"><span class="px-src-name">无限制源</span></div>';
+
+      return `
+        ${getModelStatusHTML()}
+        
+        <div class="px-sec">
+          <div class="px-sec-title">📊 使用配额</div>
+          <div class="px-grid-2">
+            <div class="px-item">
+              <span class="px-label">Pro 搜索</span>
+              ${formatVal(rateLimit.remaining_pro, proWarn)}
+              ${rateLimit.remaining_pro === 0 ? '<span class="px-sub">今日已用完</span>' : ''}
+            </div>
+            <div class="px-item">
+              <span class="px-label">深度研究</span>
+              ${formatVal(rateLimit.remaining_research, researchWarn)}
+              <span class="px-sub">月度</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">Agentic 研究</span>
+              ${formatVal(rateLimit.remaining_agentic_research, false)}
+              <span class="px-sub">月度</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">实验室</span>
+              ${formatVal(rateLimit.remaining_labs, labsWarn)}
+              <span class="px-sub">月度</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">文件上传</span>
+              ${formatVal(userSettings.upload_limit, uploadWarn)}
+              <span class="px-sub">每周</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">页面</span>
+              ${formatVal(userSettings.pages_limit, false)}
+              <span class="px-sub">上限</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-sec">
+          <div class="px-sec-title">🔗 连接器 (${connectedConns.length})</div>
+          <div class="px-conn-list">${connHTML}</div>
+        </div>
+
+        ${sourcesWithLimits.length ? `
+        <div class="px-sec">
+          <div class="px-sec-title">📈 源限制 (月)</div>
+          <div class="px-src-grid">${srcHTML}</div>
+        </div>
+        ` : ''}
+
+        <div class="px-sec">
+          <div class="px-sec-title">⚙️ 账户设置</div>
+          <div class="px-grid-2">
+            <div class="px-item">
+              <span class="px-label">等级</span>
+              <span class="px-value">${(userSettings.subscription_tier === 'unknown' ? 'Pro' : userSettings.subscription_tier).toUpperCase()}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">训练数据</span>
+              <span class="px-value${userSettings.disable_training ? '' : ' warn'}">${userSettings.disable_training ? '已关闭' : '开启 ⚠️'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">图片模型</span>
+              <span class="px-model-val" style="color:#cbd5e1">${userSettings.default_image_generation_model || 'default'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">时区</span>
+              <span class="px-model-val" style="color:#cbd5e1">${userSettings.time_zone || 'N/A'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-actions">
+          <button class="px-btn primary" id="px-hud-refresh">↻ 刷新</button>
+          <button class="px-btn secondary" id="px-hud-detail">详情 →</button>
+        </div>
+
+        <div class="px-total">
+          总查询: <strong>${(userSettings.query_count || 0).toLocaleString()}</strong>
+          ${userSettings.query_count_copilot ? ` | Copilot: ${userSettings.query_count_copilot.toLocaleString()}` : ''}
+        </div>
+      `;
+    }
+
+    function createHUD() {
+      removeExistingHUD();
+
+      const container = document.createElement('div');
+      container.id = 'ppx-status-container';
+
+      const tab = document.createElement('div');
+      tab.id = 'ppx-tab';
+
+      const hud = document.createElement('div');
+      hud.id = 'ppx-hud';
+      hud.innerHTML = '<div class="px-loading">加载中...</div>';
+
+      container.appendChild(tab);
+      container.appendChild(hud);
+      document.body.appendChild(container);
+
+      hud.addEventListener('click', e => {
+        if (e.target.id === 'px-hud-detail') {
+          openStatusModal();
+        } else if (e.target.id === 'px-hud-refresh') {
+          refreshStatus();
+        }
+      });
+
+      return hud;
+    }
+
+    function updateHUDContent() {
+      if (!cachedData) return;
+      const hud = document.getElementById('ppx-hud');
+      if (!hud) return;
+      const [rateLimit, userSettings] = cachedData;
+      hud.innerHTML = generateHUDContent(rateLimit, userSettings);
+    }
+
+    function generateModalContent(rateLimit, userSettings) {
+      const connectedConns = userSettings.connectors?.connectors?.filter(c => c.connected) || [];
+      const allConns = userSettings.connectors?.connectors || [];
+
+      let connDetailHTML = '';
+      if (allConns.length) {
+        connDetailHTML = `
+          <div class="px-sec">
+            <div class="px-sec-title">🔗 所有连接器</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">
+              ${allConns.map(c => `
+                <div style="padding:8px;border-radius:6px;background:${c.connected ? 'rgba(16,185,129,0.1)' : 'rgba(100,116,139,0.1)'};border:1px solid ${c.connected ? 'rgba(16,185,129,0.3)' : 'rgba(100,116,139,0.2)'};display:flex;align-items:center;gap:6px">
+                  <span style="color:${c.connected ? '#10b981' : '#64748b'}">${c.connected ? '●' : '○'}</span>
+                  <span style="color:${c.connected ? '#e2e8f0' : '#64748b'}">${c.name.replace(/_mcp_|_direct|_merge|_alt|_cashmere/g, '')}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      let allSourcesHTML = '';
+      if (rateLimit.sources?.source_to_limit) {
+        const sources = [];
+        Object.keys(rateLimit.sources.source_to_limit).forEach(k => {
+          const s = rateLimit.sources.source_to_limit[k];
+          sources.push({
+            name: k.replace(/_mcp_cashmere|_mcp_merge|_direct/g, '').replace(/_/g, ''),
+            limit: s.monthly_limit,
+            remaining: s.remaining
+          });
+        });
+
+        if (sources.length) {
+          allSourcesHTML = `
+            <div class="px-sec">
+              <div class="px-sec-title">📊 所有源限制</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:11px">
+                ${sources.map(s => `
+                  <div style="padding:6px 8px;border-radius:4px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;align-items:center">
+                    <span style="color:#94a3b8">${s.name}</span>
+                    <span style="font-family:monospace;color:${s.limit === null ? '#64748b' : (s.remaining === 0 ? '#ef4444' : '#818cf8')};font-weight:600">
+                      ${s.limit === null ? '∞' : `${s.remaining}/${s.limit}`}
+                    </span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      let modelHistoryHTML = '';
+      if (monitorData.h.length) {
+        modelHistoryHTML = `
+          <div class="px-sec">
+            <div class="px-sec-title">🤖 模型历史 (最近5次)</div>
+            ${monitorData.h.map(i => {
+          const time = new Date(i.t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+          return `
+                <div style="padding:8px;border-radius:6px;background:rgba(255,255,255,0.02);margin-bottom:6px;border-left:3px solid #3b82f6">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-bottom:4px">
+                    <span>${time}</span>
+                  </div>
+                  <div style="font-size:11px;color:#94a3b8">模型: <span style="color:#cbd5e1;font-family:monospace">${i.d}</span></div>
+                </div>
+              `;
+        }).join('')}
+          </div>
+        `;
+      }
+
+      const limits = userSettings.connector_limits || {};
+
+      return `
+        <div class="px-sec">
+          <div class="px-sec-title">📊 详细配额</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+            <div class="px-item" style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+              <span class="px-label">Pro 搜索 (每日软限制)</span>
+              <div style="font-size:24px;font-weight:700;color:${rateLimit.remaining_pro === 0 ? '#ef4444' : '#f8fafc'};font-family:monospace">${rateLimit.remaining_pro ?? 'N/A'}</div>
+            </div>
+            <div class="px-item" style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+              <span class="px-label">深度研究 (每月)</span>
+              <div style="font-size:24px;font-weight:700;color:#f8fafc;font-family:monospace">${rateLimit.remaining_research ?? 'N/A'}</div>
+            </div>
+            <div class="px-item" style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+              <span class="px-label">Agentic 研究</span>
+              <div style="font-size:24px;font-weight:700;color:#f8fafc;font-family:monospace">${rateLimit.remaining_agentic_research ?? 'N/A'}</div>
+            </div>
+            <div class="px-item" style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+              <span class="px-label">实验室 (每月)</span>
+              <div style="font-size:24px;font-weight:700;color:#f8fafc;font-family:monospace">${rateLimit.remaining_labs ?? 'N/A'}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-sec">
+          <div class="px-sec-title">📁 文件限制</div>
+          <div class="px-grid-2">
+            <div class="px-item">
+              <span class="px-label">每周上传</span>
+              <span class="px-value">${userSettings.upload_limit ?? 'N/A'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">文章图片上传</span>
+              <span class="px-value">${userSettings.article_image_upload_limit ?? 'N/A'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">每个用户最大文件</span>
+              <span class="px-value">${userSettings.max_files_per_user ?? 'N/A'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">存储库最大文件</span>
+              <span class="px-value">${userSettings.max_files_per_repository ?? 'N/A'}</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">最大文件大小</span>
+              <span class="px-value">${limits.max_file_size_mb ?? 'N/A'} MB</span>
+            </div>
+            <div class="px-item">
+              <span class="px-label">每日附件限制</span>
+              <span class="px-value">${limits.daily_attachment_limit ?? 'N/A'}</span>
+            </div>
+          </div>
+        </div>
+
+        ${connDetailHTML}
+        ${allSourcesHTML}
+        ${modelHistoryHTML}
+
+        <div class="px-sec">
+          <div class="px-sec-title">📈 统计信息</div>
+          <div style="font-size:13px;color:#cbd5e1;line-height:1.8">
+            <div style="display:flex;justify-content:space-between"><span>总查询数</span><span style="font-family:monospace;color:#e2e8f0">${(userSettings.query_count || 0).toLocaleString()}</span></div>
+            ${userSettings.query_count_copilot ? `<div style="display:flex;justify-content:space-between"><span>Copilot 查询</span><span style="font-family:monospace;color:#e2e8f0">${userSettings.query_count_copilot.toLocaleString()}</span></div>` : ''}
+            ${userSettings.query_count_mobile ? `<div style="display:flex;justify-content:space-between"><span>移动端查询</span><span style="font-family:monospace;color:#e2e8f0">${userSettings.query_count_mobile.toLocaleString()}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between"><span>默认模型</span><span style="font-family:monospace;color:#e2e8f0">${userSettings.default_model || 'turbo'}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>订阅状态</span><span style="color:${userSettings.subscription_status === 'active' ? '#10b981' : '#fbbf24'}">${userSettings.subscription_status || 'unknown'}</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openStatusModal() {
+      if (!cachedData) return;
+      const [rateLimit, userSettings] = cachedData;
+
+      const bg = document.createElement('div');
+      bg.className = 'px-m-bg';
+      bg.id = 'px-status-bg';
+      bg.onclick = e => {
+        if (e.target === bg) bg.remove();
+      };
+
+      bg.innerHTML = `
+        <div class="px-m">
+          <div class="px-mh">
+            <div class="px-mt">⚡ Perplexity 详细状态</div>
+            <div class="px-mc">
+              <button class="px-m-close" id="px-modal-refresh" title="刷新">↻</button>
+              <button class="px-m-close" onclick="this.closest('.px-m-bg').remove()" title="关闭">×</button>
+            </div>
+          </div>
+          <div class="px-mb" id="px-modal-content">${generateModalContent(rateLimit, userSettings)}</div>
+        </div>
+      `;
+
+      document.body.appendChild(bg);
+
+      const refreshBtn = document.getElementById('px-modal-refresh');
+      if (refreshBtn) {
+        refreshBtn.onclick = () => {
+          refreshBtn.classList.add('px-sp');
+          fetchStatusData().then(data => {
+            const modalContent = document.getElementById('px-modal-content');
+            if (modalContent) modalContent.innerHTML = generateModalContent(data[0], data[1]);
+          }).finally(() => {
+            refreshBtn.classList.remove('px-sp');
+          });
+        };
+      }
+    }
+
+    function refreshStatus() {
+      const refreshBtn = document.getElementById('px-hud-refresh');
+      const modalRefresh = document.getElementById('px-modal-refresh');
+      if (refreshBtn) {
+        const originalText = refreshBtn.innerHTML;
+        refreshBtn.innerHTML = '<span class="px-sp">↻</span> 刷新';
+        refreshBtn.disabled = true;
+      }
+      if (modalRefresh) modalRefresh.classList.add('px-sp');
+
+      fetchStatusData().then(data => {
+        updateHUDContent();
+        const modalContent = document.getElementById('px-modal-content');
+        if (modalContent) modalContent.innerHTML = generateModalContent(data[0], data[1]);
+      }).finally(() => {
+        if (refreshBtn) {
+          refreshBtn.innerHTML = '↻ 刷新';
+          refreshBtn.disabled = false;
+        }
+        if (modalRefresh) modalRefresh.classList.remove('px-sp');
+      });
+    }
+
+    createHUD();
+    fetchStatusData().then(() => updateHUDContent());
   }
 
   function setupAnswerRules() {
@@ -1108,6 +1885,7 @@
     if (host.includes('perplexity.ai')) {
       setupPerplexityModelLabels();
       setupAnswerRules();
+      setupPerplexityStatusMonitor();
     } else if (host.includes('gemini.google.com')) {
       const isGeminiChat = () => {
         const path = globalThis.location.pathname;
