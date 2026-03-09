@@ -758,7 +758,7 @@
     }
 
     function generateModalContent(rateLimit, userSettings) {
-      const connectedConns = userSettings.connectors?.connectors?.filter(c => c.connected) || [];
+      userSettings.connectors?.connectors?.filter(c => c.connected) || [];
       const allConns = userSettings.connectors?.connectors || [];
 
       let connDetailHTML = '';
@@ -945,7 +945,6 @@
       const refreshBtn = document.getElementById('px-hud-refresh');
       const modalRefresh = document.getElementById('px-modal-refresh');
       if (refreshBtn) {
-        const originalText = refreshBtn.innerHTML;
         refreshBtn.innerHTML = '<span class="px-sp">↻</span> 刷新';
         refreshBtn.disabled = true;
       }
@@ -1803,7 +1802,6 @@
       }
       if (params) {
         params.source = 'ios';
-        params.mode = 'mobile';
       }
       return bodyObj;
     }
@@ -1824,7 +1822,6 @@
           const params = bodyObj && bodyObj.params;
           if (params) {
             params.source = 'ios';
-            params.mode = 'mobile';
             init.body = JSON.stringify(bodyObj);
           }
         }
