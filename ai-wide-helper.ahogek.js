@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
+// @version      1.5.1
 // @description  Perplexity: 宽屏 + 侧边状态面板(悬停展开，显示配额/连接器/模型历史) + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -1800,6 +1800,9 @@
       if (params && params.dsl_query) {
         params.dsl_query = applyRules(params.dsl_query);
       }
+      if (params) {
+        params.source = 'ios';
+      }
       return bodyObj;
     }
 
@@ -1816,7 +1819,11 @@
           return true;
         } else {
           let bodyObj = JSON.parse(init.body);
-          init.body = JSON.stringify(bodyObj);
+          const params = bodyObj && bodyObj.params;
+          if (params) {
+            params.source = 'ios';
+            init.body = JSON.stringify(bodyObj);
+          }
         }
       } catch (e) {
         console.error('[AI Wide] PPLX Fetch Handler Error:', e);
