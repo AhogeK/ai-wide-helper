@@ -32,32 +32,44 @@
       flex-direction: row-reverse !important;
       align-items: center !important;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+      width: 12px !important;
+      height: 100px !important;
+    }
+    #ppx-status-container:hover {
+      width: 292px !important;
     }
     #ppx-status-container:hover #ppx-hud {
       transform: translateX(0) !important;
       opacity: 1 !important;
     }
     #ppx-status-container:hover #ppx-tab {
-      border-radius: 0 0 0 8px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
     }
     #ppx-tab {
+      position: absolute !important;
+      right: 0 !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
       width: 12px !important;
-      height: 80px !important;
-      background: rgba(15, 23, 42, 0.8) !important;
+      height: 70px !important;
+      background: rgba(30, 41, 59, 0.9) !important;
       border-radius: 8px 0 0 8px !important;
       cursor: pointer !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
       transition: all 0.3s ease !important;
-      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3) !important;
+      box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-right: none !important;
     }
     #ppx-tab::before {
       content: '' !important;
-      width: 3px !important;
+      width: 2px !important;
       height: 24px !important;
-      background: rgba(255, 255, 255, 0.3) !important;
-      border-radius: 2px !important;
+      background: rgba(255, 255, 255, 0.4) !important;
+      border-radius: 1px !important;
     }
     #ppx-hud {
       background: rgba(15, 23, 42, 0.98) !important;
