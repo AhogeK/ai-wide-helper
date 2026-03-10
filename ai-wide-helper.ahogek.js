@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.3
+// @version      1.5.4
 // @description  Perplexity: 宽屏 + 侧边状态面板(悬停展开，显示配额/连接器/模型历史) + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -965,6 +965,11 @@
 
     createHUD();
     fetchStatusData().then(() => updateHUDContent());
+
+    // 监听刷新事件
+    window.addEventListener('ppx:refresh-quota', () => {
+      fetchStatusData().then(() => updateHUDContent());
+    });
   }
 
   function setupAnswerRules() {
@@ -1823,10 +1828,24 @@
 
     globalThis.fetch = async function (input, init) {
       const urlStr = getFetchUrl(input);
-      if (init?.method === 'POST' && init.body) {
+      const isPost = init?.method === 'POST';
+
+      if (isPost && init?.body) {
         handlePerplexityFetch(urlStr, init);
       }
-      return originalFetch.call(this, input, init);
+
+      const responsePromise = originalFetch.call(this, input, init);
+
+      // POST 请求成功后刷新配额
+      if (isPost) {
+        responsePromise.then(() => {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
+          }, 2000);
+        });
+      }
+
+      return responsePromise;
     };
     XMLHttpRequest.prototype.open = function (method, url) {
       return originalXhrOpen.apply(this, arguments);
