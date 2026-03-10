@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.4
-// @description  Perplexity: 宽屏 + 侧边状态面板(悬停展开，显示配额/连接器/模型历史) + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复新标签页模型继承问题 + Space级模型记忆(跨Tab保持上次使用的模型) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.20
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + Space级模型隔离(Tab独立、阻止官方API覆写、性能优化) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -19,6 +19,14 @@
   // ============================================================
   const MAX_WIDTH = '1600px';
   const USER_BUBBLE_WIDTH = '760px';
+
+  // Application Constants
+  const URL_CHECK_INTERVAL = 500; // ms
+  const GEMINI_ALIGN_INTERVAL = 500; // ms
+  const MAX_MODEL_HISTORY = 5;
+  const REFRESH_QUOTA_DELAY = 2000; // ms
+  const WAIT_FOR_URL_MAX_ATTEMPTS = 10;
+  const WAIT_FOR_URL_INTERVAL = 100; // ms
 
   const perplexityStatusCSS = `
     /* === Perplexity Status HUD - Slide Out === */
@@ -393,6 +401,20 @@
   // 1. Helper Functions (Hoisted to Outer Scope)
   // ============================================================
 
+  // 共享的 Space ID 提取函数
+  function getCurrentSpaceId() {
+    // 支持多种格式：/spaces/xxx-abc123 或 /spaces/abc123
+    // 注意：移除 $ 锚点以支持 URL 查询参数（如 ?source=...）
+    const urlMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(globalThis.location.pathname);
+    if (urlMatch) {
+      const fullId = urlMatch[1];
+      // 如果有 -，取最后一部分作为 Space ID
+      const spaceId = fullId.includes('-') ? fullId.split('-').pop() : fullId;
+      return spaceId;
+    }
+    return 'default';
+  }
+
   function forceGeminiRightAlign() {
     const queryContents = document.querySelectorAll('user-query-content.user-query-container');
     queryContents.forEach(el => {
@@ -528,8 +550,8 @@
       return null;
     }
 
-    const origFetch = window.fetch;
-    window.fetch = function (...args) {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = function (...args) {
       return origFetch.apply(this, args).then(r => {
         try {
           r.clone().text().then(t => {
@@ -542,7 +564,7 @@
                 // 保存到历史
                 if (!monitorData.h.length || monitorData.h[0].d !== monitorData.d) {
                   monitorData.h.unshift({d: monitorData.d, t: monitorData.t});
-                  if (monitorData.h.length > 5) monitorData.h.pop();
+                  if (monitorData.h.length > MAX_MODEL_HISTORY) monitorData.h.pop();
                 }
                 saveMonitorData();
                 updateHUDContent();
@@ -967,7 +989,7 @@
     fetchStatusData().then(() => updateHUDContent());
 
     // 监听刷新事件
-    window.addEventListener('ppx:refresh-quota', () => {
+    globalThis.addEventListener('ppx:refresh-quota', () => {
       fetchStatusData().then(() => updateHUDContent());
     });
   }
@@ -977,18 +999,6 @@
     const BUTTON_CLASS = 'pplx-rules-button';
     const MODAL_ID = 'pplx-rules-modal';
     const DARK_MODE_CLASS = 'pplx-dark-mode';
-
-    function getCurrentSpaceId() {
-      const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
-      if (urlMatch) return urlMatch[1];
-      const spaceLink = document.querySelector('a[href*="/spaces/"]');
-      if (spaceLink) {
-        const href = spaceLink.getAttribute('href');
-        const hrefMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(href);
-        if (hrefMatch) return hrefMatch[1];
-      }
-      return 'default';
-    }
 
     function getStorageKey() {
       const spaceId = getCurrentSpaceId();
@@ -1195,8 +1205,19 @@
         setTimeout(updateButtonState, 500);
       }
     };
-    new MutationObserver(checkChanges).observe(document, {subtree: true, childList: true});
-    new MutationObserver(() => addRulesButton()).observe(document.body, {childList: true, subtree: true});
+
+    // 存储 observer 引用以便清理
+    const urlObserver = new MutationObserver(checkChanges);
+    urlObserver.observe(document, {subtree: true, childList: true});
+
+    const buttonObserver = new MutationObserver(() => addRulesButton());
+    buttonObserver.observe(document.body, {childList: true, subtree: true});
+
+    // 清理资源（页面卸载时，只执行一次）
+    globalThis.addEventListener('beforeunload', () => {
+      urlObserver.disconnect();
+      buttonObserver.disconnect();
+    }, {once: true});
   }
 
   function setupGeminiAnswerRules() {
@@ -1490,7 +1511,7 @@
       // 根据元素类型设置内容并触发 React 事件
       if (targetElement.tagName === 'TEXTAREA') {
         // 使用 Object.defineProperty 绕过 React 的受控组件检查
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(globalThis.HTMLTextAreaElement.prototype, 'value').set;
         nativeInputValueSetter.call(targetElement, newContent);
 
         // 触发 React 的 onChange 事件
@@ -1626,7 +1647,9 @@
     ];
     const targetSet = new Set(TARGET_KEYS);
     const TAB_ID_KEY = '__pplx_tab_id__';
+    const TAB_INIT_KEY = '__pplx_tab_initialized__';
     const SPACE_MEMORY_KEY_PREFIX = 'pplx.space-model-memory-v1.';
+    const LAST_SPACE_KEY = '__pplx_last_space_id__';
 
     // 保存原始 Storage 方法（必须在重定义之前保存）
     const originalSetItem = Storage.prototype.setItem;
@@ -1637,19 +1660,39 @@
     originalSetItem.call(sessionStorage, TAB_ID_KEY, tabId);
     const ssKey = (k) => `__pplx_tab_${tabId}__${k}`;
 
-    // 检查是否是真正的新标签页（通过检查是否存在任何模型相关的 sessionStorage key）
-    const isNewTab = !TARGET_KEYS.some(k => {
-      const ssVal = originalGetItem.call(sessionStorage, ssKey(k));
-      return ssVal !== null;
-    });
+    // 新标签页检测
+    const isNewTab = !originalGetItem.call(sessionStorage, TAB_INIT_KEY);
+    if (isNewTab) {
+      originalSetItem.call(sessionStorage, TAB_INIT_KEY, 'true');
+    }
 
-    console.log('[AI Wide] Tab isolation initialized. TabId:', tabId.substring(0, 8) + '..., IsNewTab:', isNewTab);
+    // 状态变量（必须在函数定义前声明）
+    let currentSpaceId = null;
+    let isInitialized = false;
+    let pendingModelValue = null; // 用于暂存初始化期间的模型设置
 
-    // 辅助函数：获取当前 Space ID
-    function getCurrentSpaceId() {
-      const urlMatch = /\/spaces\/.*-([a-zA-Z0-9_.-]+)$/.exec(globalThis.location.pathname);
-      if (urlMatch) return urlMatch[1];
-      return 'default';
+    // 等待 URL 稳定（对于新 Tab）
+    function waitForStableUrl(callback) {
+      if (!isNewTab) {
+        // 刷新页面，URL 已经稳定
+        callback();
+        return;
+      }
+
+      // 新 Tab：检查 URL 是否包含有效的 Space ID
+      let attempts = 0;
+      const maxAttempts = WAIT_FOR_URL_MAX_ATTEMPTS; // 最多等待 1 秒（减少延迟）
+      const checkUrl = () => {
+        const spaceId = getCurrentSpaceId();
+        // 如果已经检测到非 default 的 Space，或者达到最大尝试次数
+        if (spaceId !== 'default' || attempts >= maxAttempts) {
+          callback();
+        } else {
+          attempts++;
+          setTimeout(checkUrl, WAIT_FOR_URL_INTERVAL);
+        }
+      };
+      checkUrl();
     }
 
     // 辅助函数：获取 Space 特定的模型记忆 key
@@ -1657,13 +1700,31 @@
       return `${SPACE_MEMORY_KEY_PREFIX}${spaceId}`;
     }
 
-    // 辅助函数：保存模型到 Space 记忆
-    function saveModelToSpaceMemory(modelValue) {
-      const spaceId = getCurrentSpaceId();
-      const memoryKey = getSpaceMemoryKey(spaceId);
+    // 辅助函数：保存模型到 Space 记忆（作为新Tab的默认值）
+    function saveModelToSpaceMemory(modelValue, spaceId) {
+      // 空值检查
+      if (modelValue == null) {
+        console.warn('[AI Wide] Attempted to save null/undefined model value');
+        return;
+      }
+
+      // 使用传入的 spaceId，如果没有则使用缓存的 currentSpaceId
+      // 注意：只有在初始化完成后（isInitialized 为 true）才能依赖 currentSpaceId
+      let targetSpaceId = spaceId;
+      if (!targetSpaceId) {
+        targetSpaceId = isInitialized ? currentSpaceId : getCurrentSpaceId();
+      }
+
+      // 确保 targetSpaceId 有效
+      if (!targetSpaceId) {
+        console.error('[AI Wide] Failed to determine target Space ID');
+        return;
+      }
+
+      const memoryKey = getSpaceMemoryKey(targetSpaceId);
       try {
         originalSetItem.call(localStorage, memoryKey, String(modelValue));
-        console.log('[AI Wide] Saved model to space memory:', spaceId, '->', modelValue.substring(0, 50));
+        console.log('[AI Wide] Saved model to space memory:', targetSpaceId, '->', modelValue.substring(0, 50));
       } catch (e) {
         console.error('[AI Wide] Failed to save space memory:', e);
       }
@@ -1679,46 +1740,82 @@
       }
     }
 
-    // 对于新标签页，优先使用 Space 特定的模型记忆
-    if (isNewTab) {
-      const spaceId = getCurrentSpaceId();
-      const spaceMemory = getModelFromSpaceMemory(spaceId);
-
-      if (spaceMemory) {
-        // 使用 Space 特定的记忆
-        console.log('[AI Wide] Using space-specific model memory for:', spaceId);
-        for (const k of TARGET_KEYS) {
-          originalSetItem.call(sessionStorage, ssKey(k), spaceMemory);
-          // 同时更新 localStorage 的通用设置
-          originalSetItem.call(localStorage, k, spaceMemory);
-        }
-      } else {
-        // 回退到通用的 preferredSearchModels
-        console.log('[AI Wide] No space memory found, using global settings for:', spaceId);
-        for (const k of TARGET_KEYS) {
-          const v = originalGetItem.call(localStorage, k);
-          if (v != null) {
-            originalSetItem.call(sessionStorage, ssKey(k), v);
-          }
-        }
+    // 辅助函数：恢复模型设置
+    function restoreModel(modelValue) {
+      // 确保 modelValue 是字符串类型
+      const strValue = String(modelValue || '');
+      console.log('[AI Wide] Restoring model:', strValue.substring(0, 50));
+      for (const k of TARGET_KEYS) {
+        originalSetItem.call(sessionStorage, ssKey(k), strValue);
       }
-    } else {
-      console.log('[AI Wide] Existing tab detected, using sessionStorage values');
     }
 
-    // [核心修复] setItem 逻辑调整：
-    // 1. 写入 sessionStorage (确保当前 Tab 使用隔离的设置)
-    // 2. 保存到 Space 特定的记忆 (实现跨 Tab 的 Space 级记忆)
-    // 3. 放行 localStorage 写入 (确保新开 Tab 能继承最新设置)
-    // 4. (通过底下的 storage 事件监听拦截，确保其他 OLD Tab 不会被干扰)
+    // 延迟初始化，等待 URL 稳定
+    waitForStableUrl(() => {
+      // 初始化 currentSpaceId（只获取一次并缓存）
+      currentSpaceId = getCurrentSpaceId();
+      originalSetItem.call(sessionStorage, LAST_SPACE_KEY, currentSpaceId);
+
+      console.log('[AI Wide] Tab isolation initialized. TabId:', tabId.substring(0, 8) + '..., IsNewTab:', isNewTab, 'Space:', currentSpaceId);
+
+      // 初始化：新Tab从Space记忆恢复，刷新保持当前（sessionStorage还在）
+      if (isNewTab) {
+        const spaceMemory = getModelFromSpaceMemory(currentSpaceId);
+
+        if (spaceMemory) {
+          console.log('[AI Wide] New tab using space memory:', currentSpaceId);
+          restoreModel(spaceMemory);
+        } else {
+          // 回退到通用的 preferredSearchModels
+          console.log('[AI Wide] New tab using global settings');
+          const globalModel = originalGetItem.call(localStorage, TARGET_KEYS[0]) ||
+              originalGetItem.call(localStorage, TARGET_KEYS[1]);
+          if (globalModel) {
+            restoreModel(globalModel);
+          }
+        }
+      } else {
+        console.log('[AI Wide] Refresh - keeping current session model');
+        // 刷新时sessionStorage还在，自动保持，无需操作
+      }
+
+      // 标记初始化完成
+      isInitialized = true;
+
+      // 处理初始化期间暂存的模型设置
+      if (pendingModelValue) {
+        saveModelToSpaceMemory(pendingModelValue);
+        pendingModelValue = null;
+      }
+
+      console.log('[AI Wide] Initialization complete');
+    });
+
+    // [核心] setItem 拦截
+    // 1. 拦截所有对 target keys 的写入
+    // 2. 只保存到 sessionStorage（当前Tab独立）
+    // 3. 保存到 Space记忆（新Tab默认值）- 仅在初始化完成后
+    // 4. 阻止写入 localStorage（防止官方API覆写）
     Storage.prototype.setItem = function (key, value) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
         const strValue = String(value);
+
+        // 保存到 sessionStorage（当前Tab独立，本次操作保持）
         originalSetItem.call(sessionStorage, ssKey(k), strValue);
-        // 同时保存到 Space 特定的记忆
-        saveModelToSpaceMemory(strValue);
-        return originalSetItem.call(this, key, value);
+
+        // 仅在初始化完成后才保存到 Space 记忆
+        // 防止初始化期间的竞态条件
+        if (isInitialized) {
+          saveModelToSpaceMemory(strValue);
+        } else {
+          // 初始化期间暂存模型设置
+          pendingModelValue = strValue;
+        }
+
+        // 阻止写入 localStorage！防止官方API覆写
+        console.log('[AI Wide] Blocked official model set:', strValue.substring(0, 50));
+        return;
       }
       return originalSetItem.call(this, key, value);
     };
@@ -1726,6 +1823,7 @@
     Storage.prototype.getItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
+        // 优先从 sessionStorage 读取（Tab独立）
         const v = originalGetItem.call(sessionStorage, ssKey(k));
         if (v != null) return v;
       }
@@ -1736,37 +1834,95 @@
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
         originalRemoveItem.call(sessionStorage, ssKey(k));
-        return originalRemoveItem.call(this, key);
+        // 阻止删除 localStorage
+        return;
       }
       return originalRemoveItem.call(this, key);
     };
 
+    // 模型保护：拦截 storage 事件，阻止外部修改模型设置
     globalThis.addEventListener('storage', (e) => {
-      const k = e?.key;
-      if (e?.storageArea === localStorage && typeof k === 'string' && targetSet.has(k)) {
-        e.stopImmediatePropagation();
+      try {
+        const k = e?.key;
+        // 使用更严格的检查，确保 storageArea 确实是 localStorage
+        if (e?.storageArea === localStorage && typeof k === 'string' && targetSet.has(k)) {
+          const sessionValue = originalGetItem.call(sessionStorage, ssKey(k));
+          const newValue = e.newValue;
+
+          // 如果 localStorage 被外部修改且与当前 Tab 不一致，阻止并清除
+          if (newValue && newValue !== sessionValue) {
+            console.log('[AI Wide] Clearing external model overwrite from localStorage');
+            e.stopImmediatePropagation();
+            originalRemoveItem.call(localStorage, k);
+          }
+          // 如果值相同，不阻止传播（允许正常跨 Tab 同步）
+        }
+      } catch (err) {
+        console.error('[AI Wide] Model protection error:', err);
       }
     }, true);
+
+    // 监听 URL 变化，检测 Space 切换
+    function handleSpaceChange() {
+      // 确保初始化完成后再处理 Space 切换
+      if (!isInitialized) {
+        return;
+      }
+
+      try {
+        const newSpaceId = getCurrentSpaceId();
+        const lastSpaceId = originalGetItem.call(sessionStorage, LAST_SPACE_KEY);
+
+        if (newSpaceId !== lastSpaceId) {
+          console.log('[AI Wide] Space changed from', lastSpaceId, 'to', newSpaceId);
+
+          // 保存旧 Space 的当前模型到 Space 记忆
+          if (lastSpaceId) {
+            // 查找第一个有值的模型
+            const currentModel = TARGET_KEYS
+                .map(k => originalGetItem.call(sessionStorage, ssKey(k)))
+                .find(v => v);
+            if (currentModel) {
+              saveModelToSpaceMemory(currentModel, lastSpaceId);
+            }
+          }
+
+          // 恢复新 Space 的模型（从 Space 记忆）
+          const spaceMemory = getModelFromSpaceMemory(newSpaceId);
+          if (spaceMemory) {
+            restoreModel(spaceMemory);
+          }
+
+          // 更新记录的 Space
+          currentSpaceId = newSpaceId;
+          originalSetItem.call(sessionStorage, LAST_SPACE_KEY, newSpaceId);
+        }
+      } catch (e) {
+        console.error('[AI Wide] Space change handler error:', e);
+      }
+    }
+
+    // 监听 URL 变化：使用轮询检测 SPA 路由变化（性能更优）
+    let lastUrl = globalThis.location.href;
+    const urlCheckInterval = setInterval(() => {
+      if (globalThis.location.href !== lastUrl) {
+        lastUrl = globalThis.location.href;
+        handleSpaceChange();
+      }
+    }, URL_CHECK_INTERVAL);
+
+    // 清理 interval（页面卸载时，只执行一次）
+    globalThis.addEventListener('beforeunload', () => {
+      clearInterval(urlCheckInterval);
+    }, {once: true});
+
+    console.log('[AI Wide] Model isolation fully initialized');
   }
 
   // 2.2 Global Network Interceptor
   (function installNetworkInterceptor() {
     console.log('[AI Widescreen] Initializing Unified Network Interceptor...');
     const originalFetch = globalThis.fetch;
-    const originalXhrOpen = XMLHttpRequest.prototype.open;
-    const originalXhrSend = XMLHttpRequest.prototype.send;
-
-    function getPerplexitySpaceId() {
-      const urlMatch = new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(globalThis.location.pathname);
-      if (urlMatch) return urlMatch[1];
-      if (globalThis.location.hostname.includes('perplexity.ai') && document.body) {
-        const spaceLink = document.querySelector('a[href*="/spaces/"]');
-        const href = spaceLink?.getAttribute('href');
-        const hrefMatch = href ? new RegExp(/\/spaces\/.*-([a-zA-Z0-9_.-]+)$/).exec(href) : null;
-        if (hrefMatch) return hrefMatch[1];
-      }
-      return 'default';
-    }
 
     function getFetchUrl(input) {
       if (typeof input === 'string') return input;
@@ -1781,7 +1937,7 @@
     function getPerplexityRules() {
       if (!globalThis.location.hostname.includes('perplexity.ai')) return null;
       try {
-        const spaceId = getPerplexitySpaceId();
+        const spaceId = getCurrentSpaceId();
         const key = `pplx_answer_rules_${spaceId}`;
         const raw = localStorage.getItem(key);
         if (!raw?.trim()) return null;
@@ -1809,8 +1965,8 @@
     }
 
     function handlePerplexityFetch(urlStr, init) {
-      if (!urlStr.includes('perplexity_ask')) return false;
-      if (typeof init.body !== 'string') return false;
+      if (!urlStr?.includes('perplexity_ask')) return;
+      if (typeof init.body !== 'string') return;
       try {
         const rules = getPerplexityRules();
         if (rules) {
@@ -1818,12 +1974,53 @@
           bodyObj = injectPerplexityBody(bodyObj, rules);
           init.body = JSON.stringify(bodyObj);
           console.log('[AI Widescreen] Perplexity Rules Injected');
-          return true;
         }
       } catch (e) {
         console.error('[AI Wide] PPLX Fetch Handler Error:', e);
       }
-      return false;
+    }
+
+    // 检测并阻止官方模型设置请求
+    function interceptModelChangeFetch(urlStr, init) {
+      if (!globalThis.location.hostname.includes('perplexity.ai')) return;
+
+      // 检测保存用户设置的请求（阻止官方的模型设置）
+      if (urlStr?.includes('/rest/user/settings') && init?.method === 'POST') {
+        try {
+          if (typeof init.body === 'string') {
+            const body = JSON.parse(init.body);
+            // 检查 body 是否可扩展，防止删除操作失败
+            if (!Object.isExtensible(body)) {
+              console.warn('[AI Wide] Request body is not extensible, skipping model field removal');
+              return;
+            }
+            // 检查是否包含模型设置（支持多种可能的字段名）
+            const modelKeys = [
+              'preferred_search_models', 'preferredSearchModels',
+              'preferred_model', 'preferredModel',
+              'search_model', 'searchModel',
+              'model'
+            ];
+            let hasModelField = false;
+            for (const key of modelKeys) {
+              // 使用 Object.prototype.hasOwnProperty.call 确保浏览器兼容性
+              // 删除所有模型相关字段，不 break，确保清理干净
+              // 只删除非空值的模型字段（空字符串视为无效值，不处理）
+              if (Object.prototype.hasOwnProperty.call(body, key) && body[key]) {
+                hasModelField = true;
+                delete body[key];
+              }
+            }
+
+            if (hasModelField) {
+              console.log('[AI Wide] BLOCKED official model API request');
+              init.body = JSON.stringify(body);
+            }
+          }
+        } catch (e) {
+          console.error('[AI Wide] Failed to parse request body for model check:', e.message || String(e));
+        }
+      }
     }
 
     globalThis.fetch = async function (input, init) {
@@ -1832,6 +2029,7 @@
 
       if (isPost && init?.body) {
         handlePerplexityFetch(urlStr, init);
+        interceptModelChangeFetch(urlStr, init);
       }
 
       const responsePromise = originalFetch.call(this, input, init);
@@ -1840,18 +2038,12 @@
       if (isPost) {
         responsePromise.then(() => {
           setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
-          }, 2000);
+            globalThis.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
+          }, REFRESH_QUOTA_DELAY);
         });
       }
 
       return responsePromise;
-    };
-    XMLHttpRequest.prototype.open = function (method, url) {
-      return originalXhrOpen.apply(this, arguments);
-    };
-    XMLHttpRequest.prototype.send = function (body) {
-      return originalXhrSend.apply(this, arguments);
     };
     console.log('[AI Widescreen] Unified Interceptor Installed.');
   })();
@@ -1913,13 +2105,20 @@
         const path = globalThis.location.pathname;
         return /\/app\/[\w-]+/.test(path) || /\/gem\/[\w-]+\/[\w-]+/.test(path);
       };
-      setInterval(() => {
+      const geminiInterval = setInterval(() => {
         if (isGeminiChat()) forceGeminiRightAlign();
-      }, 500);
-      const observer = new MutationObserver(() => {
+      }, GEMINI_ALIGN_INTERVAL);
+      const geminiObserver = new MutationObserver(() => {
         if (isGeminiChat()) forceGeminiRightAlign();
       });
-      observer.observe(document.body, {childList: true, subtree: true});
+      geminiObserver.observe(document.body, {childList: true, subtree: true});
+
+      // 清理资源（页面卸载时，只执行一次）
+      globalThis.addEventListener('beforeunload', () => {
+        clearInterval(geminiInterval);
+        geminiObserver.disconnect();
+      }, {once: true});
+
       setupGeminiAnswerRules();
     }
   }
