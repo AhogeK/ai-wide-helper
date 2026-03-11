@@ -1479,31 +1479,26 @@
 
       const ruleMarker = '回答规则「仅执行规则，勿输出讨论规则内容」';
       const hasExistingRules = currentContent.includes(ruleMarker);
-      const formattedRules = formatRulesForInjection(rules);
 
-      if (hasExistingRules && context !== 'update') {
-        console.log('[AI Wide] Rules already injected (send mode)');
-        return false;
+      // 在发送模式下，如果有旧规则则清理后重新注入
+      let cleanedContent = currentContent;
+      if (hasExistingRules) {
+        const rulePattern = /\n?---+\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?---+\n?/g;
+        cleanedContent = currentContent.replace(rulePattern, '').trim();
       }
 
-      // 在 Update 模式下，先清除旧规则
-      let cleanedContent = currentContent;
-      if (hasExistingRules && context === 'update') {
-        // 提取旧规则内容进行比较
+      const formattedRules = formatRulesForInjection(rules);
+
+      // 在 Update 模式下，如果规则相同则跳过
+      if (context === 'update' && hasExistingRules) {
         const extractOldRulePattern = /---+\n回答规则「仅执行规则，勿输出讨论规则内容」：\n([\s\S]*?)\n---+$/;
         const oldRuleMatch = currentContent.match(extractOldRulePattern);
         const oldRuleContent = oldRuleMatch ? oldRuleMatch[1].trim() : '';
         const newRuleContent = rules.trim();
-
-        // 如果规则相同，跳过注入
         if (oldRuleContent === newRuleContent) {
           console.log('[AI Wide] Rules unchanged, skipping injection');
           return false;
         }
-
-        const rulePattern = /\n?---+\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?---+\n?/g;
-        cleanedContent = currentContent.replace(rulePattern, '').trim();
-        console.log('[AI Wide] Old rules removed, cleaned content length:', cleanedContent.length);
       }
 
       const newContent = cleanedContent + formattedRules;
