@@ -403,14 +403,16 @@
 
   // 共享的 Space ID 提取函数
   function getCurrentSpaceId() {
-    // 支持多种格式：/spaces/xxx-abc123 或 /spaces/abc123
-    // 注意：移除 $ 锚点以支持 URL 查询参数（如 ?source=...）
     const urlMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(globalThis.location.pathname);
     if (urlMatch) {
       const fullId = urlMatch[1];
-      // 如果有 -，取最后一部分作为 Space ID
-      const spaceId = fullId.includes('-') ? fullId.split('-').pop() : fullId;
-      return spaceId;
+      return fullId.includes('-') ? fullId.split('-').pop() : fullId;
+    }
+    const spaceLink = document.querySelector('a[href*="/spaces/"]');
+    if (spaceLink) {
+      const href = spaceLink.getAttribute('href');
+    const hrefMatch = /\/spaces\/[a-zA-Z0-9_.-]*-?([a-zA-Z0-9_.-]+)(?:\?|$)/.exec(href);
+      if (hrefMatch) return hrefMatch[1];
     }
     return 'default';
   }
