@@ -411,7 +411,7 @@
     const spaceLink = document.querySelector('a[href*="/spaces/"]');
     if (spaceLink) {
       const href = spaceLink.getAttribute('href');
-    const hrefMatch = /\/spaces\/[a-zA-Z0-9_.-]*-?([a-zA-Z0-9_.-]+)(?:\?|$)/.exec(href);
+      const hrefMatch = /\/spaces\/[a-zA-Z0-9_.-]*-?([a-zA-Z0-9_.-]+)(?:\?|$)/.exec(href);
       if (hrefMatch) return hrefMatch[1];
     }
     return 'default';
@@ -1315,7 +1315,7 @@
         borderRadius: '24px',
         padding: '24px',
         width: '90%',
-        maxWidth: '600px',
+        maxWidth: '700px',
         zIndex: '99999',
         boxShadow: '0 24px 48px rgba(0,0,0,0.2)'
       });
@@ -1341,7 +1341,7 @@
       hint.textContent = "当前规则仅对该 Space/Gem 生效。";
       const textarea = document.createElement('textarea');
       textarea.id = `${MODAL_ID}-textarea`;
-      textarea.style.cssText = "width: 100%; min-height: 200px; margin-bottom: 16px; background: transparent; color: inherit; border: 1px solid #ccc; border-radius: 8px; padding: 8px;";
+      textarea.style.cssText = "width: 100%; min-height: 350px; margin-bottom: 16px; background: transparent; color: inherit; border: 1px solid #ccc; border-radius: 8px; padding: 12px; box-sizing: border-box; resize: vertical;";
       textarea.value = getRawRules();
       const footer = document.createElement('div');
       footer.style.cssText = "display: flex; justify-content: flex-end; gap: 10px;";
@@ -1544,17 +1544,31 @@
 
       // 使用 capturing phase 确保在React处理之前拦截
       sendButton.addEventListener('click', (e) => {
+        // 如果是程序触发的发送，跳过拦截，让事件继续传播
+        if (sendButton.dataset.rulesTriggering === 'true') {
+          delete sendButton.dataset.rulesTriggering;
+          return; // 跳过我们的注入逻辑，但事件继续传播
+        }
+
         const injected = injectRulesToEditor(sendButton, 'send');
-        if (!injected) return;
+
+        // send模式下：没有规则时继续发送
+        if (!injected) {
+          // 没有规则设置，继续正常发送
+          return;
+        }
 
         // 阻止默认行为，防止消息立即发送
         e.preventDefault();
         e.stopPropagation();
 
+        // 标记为正在触发，避免递归
+        sendButton.dataset.rulesTriggering = 'true';
+
         // 延迟后触发真正的发送
         setTimeout(() => {
           sendButton.click();
-        }, 50);
+        }, 100);
 
       }, true); // capturing phase
 
