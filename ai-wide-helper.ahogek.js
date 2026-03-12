@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.20
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + Space级模型隔离(Tab独立、阻止官方API覆写、性能优化) + 修复中文字体问题；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.21
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + Space级模型隔离(Tab独立、阻止官方API覆写、性能优化) + 修复中文字体问题 + 修复HTML提取Space ID逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -411,8 +411,11 @@
     const spaceLink = document.querySelector('a[href*="/spaces/"]');
     if (spaceLink) {
       const href = spaceLink.getAttribute('href');
-      const hrefMatch = /\/spaces\/[a-zA-Z0-9_.-]*-?([a-zA-Z0-9_.-]+)(?:\?|$)/.exec(href);
-      if (hrefMatch) return hrefMatch[1];
+      const hrefMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(href);
+      if (hrefMatch) {
+        const fullId = hrefMatch[1];
+        return fullId.includes('-') ? fullId.split('-').pop() : fullId;
+      }
     }
     return 'default';
   }
