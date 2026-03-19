@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.21
+// @version      1.5.22
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + Space级模型隔离(Tab独立、阻止官方API覆写、性能优化) + 修复中文字体问题 + 修复HTML提取Space ID逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -395,6 +395,27 @@
     }
     .user-query-container > div[style*="flex"], user-query-content > div[style*="flex"] { display: none !important; }
     user-query-content::after { content: ""; display: table; clear: both; }
+
+    /* === Table Widescreen Support === */
+    table-block, .table-block, .table-content {
+      width: 100% !important; max-width: 100% !important;
+    }
+    .table-block table, .table-content table {
+      width: 100% !important; min-width: unset !important;
+    }
+    .table-block.has-scrollbar .table-content,
+    .table-block .table-content {
+      overflow-x: auto !important; max-width: 100% !important;
+    }
+    /* Wide screen: expand tables to use available space */
+    @media (min-width: 1280px) {
+      table-block, .table-block {
+        width: 100% !important;
+      }
+      .table-block table {
+        width: 100% !important; table-layout: auto !important;
+      }
+    }
   `;
 
   // ============================================================
