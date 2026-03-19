@@ -719,7 +719,7 @@
           <div class="px-grid-2">
             <div class="px-item">
               <span class="px-label">等级</span>
-              <span class="px-value">${(userSettings.subscription_tier === 'unknown' ? 'Pro' : userSettings.subscription_tier).toUpperCase()}</span>
+              <span class="px-value">${(userSettings.subscription_tier || 'unknown').toUpperCase()}</span>
             </div>
             <div class="px-item">
               <span class="px-label">训练数据</span>
@@ -1779,6 +1779,7 @@
         if (spaceMemory) {
           console.log('[AI Wide] New tab using space memory:', currentSpaceId);
           restoreModel(spaceMemory);
+          pendingModelValue = null; // 防止 pendingModelValue 覆盖正确的恢复值
         } else {
           // 回退到通用的 preferredSearchModels
           console.log('[AI Wide] New tab using global settings');
@@ -1892,7 +1893,6 @@
 
           // 保存旧 Space 的当前模型到 Space 记忆
           if (lastSpaceId) {
-            // 查找第一个有值的模型
             const currentModel = TARGET_KEYS
                 .map(k => originalGetItem.call(sessionStorage, ssKey(k)))
                 .find(v => v);
@@ -1901,15 +1901,16 @@
             }
           }
 
+          // 先更新 currentSpaceId，再恢复模型
+          // 这样 restoreModel 触发的 setItem 会保存到正确的新 Space
+          currentSpaceId = newSpaceId;
+          originalSetItem.call(sessionStorage, LAST_SPACE_KEY, newSpaceId);
+
           // 恢复新 Space 的模型（从 Space 记忆）
           const spaceMemory = getModelFromSpaceMemory(newSpaceId);
           if (spaceMemory) {
             restoreModel(spaceMemory);
           }
-
-          // 更新记录的 Space
-          currentSpaceId = newSpaceId;
-          originalSetItem.call(sessionStorage, LAST_SPACE_KEY, newSpaceId);
         }
       } catch (e) {
         console.error('[AI Wide] Space change handler error:', e);
@@ -2048,8 +2049,8 @@
 
       const responsePromise = originalFetch.call(this, input, init);
 
-      // POST 请求成功后刷新配额
-      if (isPost) {
+      // 只在发送聊天请求时刷新配额，避免其他 POST 请求触发过多调用
+      if (isPost && urlStr?.includes('perplexity_ask')) {
         responsePromise.then(() => {
           setTimeout(() => {
             globalThis.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
