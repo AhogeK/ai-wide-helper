@@ -403,7 +403,12 @@
 
   // 共享的 Space ID 提取函数
   function getCurrentSpaceId() {
-    const urlMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(globalThis.location.pathname);
+    const pathname = globalThis.location.pathname;
+    // /spaces 列表页不是具体 Space，返回 default
+    if (pathname === '/spaces' || pathname === '/spaces/') {
+      return 'default';
+    }
+    const urlMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(pathname);
     if (urlMatch) {
       const fullId = urlMatch[1];
       return fullId.includes('-') ? fullId.split('-').pop() : fullId;
@@ -1683,23 +1688,34 @@
     // 状态变量（必须在函数定义前声明）
     let currentSpaceId = null;
     let isInitialized = false;
-    let pendingModelValue = null; // 用于暂存初始化期间的模型设置
+    let pendingModelValue = null;
+    let pendingSpaceId = null;
 
     // 等待 URL 稳定（对于新 Tab）
     function waitForStableUrl(callback) {
       if (!isNewTab) {
-        // 刷新页面，URL 已经稳定
         callback();
         return;
       }
 
-      // 新 Tab：检查 URL 是否包含有效的 Space ID
       let attempts = 0;
-      const maxAttempts = WAIT_FOR_URL_MAX_ATTEMPTS; // 最多等待 1 秒（减少延迟）
+      const maxAttempts = WAIT_FOR_URL_MAX_ATTEMPTS;
       const checkUrl = () => {
         const spaceId = getCurrentSpaceId();
-        // 如果已经检测到非 default 的 Space，或者达到最大尝试次数
-        if (spaceId !== 'default' || attempts >= maxAttempts) {
+        if (spaceId !== 'default') {
+          callback();
+        } else if (attempts >= maxAttempts) {
+          const urlSpaceId = (function extractFromUrl() {
+            const match = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(globalThis.location.pathname);
+            if (match) {
+              const fullId = match[1];
+              return fullId.includes('-') ? fullId.split('-').pop() : fullId;
+            }
+            return null;
+          })();
+          if (urlSpaceId) {
+            console.log('[AI Wide] URL fallback detected Space:', urlSpaceId);
+          }
           callback();
         } else {
           attempts++;
@@ -1729,9 +1745,8 @@
         targetSpaceId = isInitialized ? currentSpaceId : getCurrentSpaceId();
       }
 
-      // 确保 targetSpaceId 有效
-      if (!targetSpaceId) {
-        console.error('[AI Wide] Failed to determine target Space ID');
+      // 确保 targetSpaceId 有效且不是 default
+      if (!targetSpaceId || targetSpaceId === 'default') {
         return;
       }
 
@@ -1754,13 +1769,33 @@
       }
     }
 
-    // 辅助函数：恢复模型设置
+// 辅助函数：恢复模型设置
     function restoreModel(modelValue) {
-      // 确保 modelValue 是字符串类型
       const strValue = String(modelValue || '');
       console.log('[AI Wide] Restoring model:', strValue.substring(0, 50));
       for (const k of TARGET_KEYS) {
         originalSetItem.call(sessionStorage, ssKey(k), strValue);
+        originalSetItem.call(localStorage, k, strValue);
+      }
+      if (currentSpaceId && currentSpaceId !== 'default') {
+        saveModelToSpaceMemory(strValue, currentSpaceId);
+      }
+    }
+
+    // 关键：在安装拦截器之前预填充 sessionStorage 和 localStorage
+    // 解决页面在 waitForStableUrl 完成前读取错误值的竞态条件
+    // 必须写入 localStorage，因为 React 挂载时直接读取 localStorage
+    if (isNewTab) {
+      const initialSpaceId = getCurrentSpaceId();
+      if (initialSpaceId && initialSpaceId !== 'default') {
+        const spaceMemory = getModelFromSpaceMemory(initialSpaceId);
+        if (spaceMemory) {
+          for (const k of TARGET_KEYS) {
+            originalSetItem.call(sessionStorage, ssKey(k), spaceMemory);
+            originalSetItem.call(localStorage, k, spaceMemory);
+          }
+          console.log('[AI Wide] Pre-populated from space memory:', initialSpaceId);
+        }
       }
     }
 
@@ -1791,45 +1826,51 @@
         }
       } else {
         console.log('[AI Wide] Refresh - keeping current session model');
-        // 刷新时sessionStorage还在，自动保持，无需操作
+        const sessionModel = TARGET_KEYS
+            .map(k => originalGetItem.call(sessionStorage, ssKey(k)))
+            .find(v => v);
+        if (sessionModel) {
+          for (const k of TARGET_KEYS) {
+            originalSetItem.call(localStorage, k, sessionModel);
+          }
+        }
       }
 
-      // 标记初始化完成
       isInitialized = true;
 
-      // 处理初始化期间暂存的模型设置
       if (pendingModelValue) {
-        saveModelToSpaceMemory(pendingModelValue);
+        saveModelToSpaceMemory(pendingModelValue, pendingSpaceId);
         pendingModelValue = null;
+        pendingSpaceId = null;
       }
 
       console.log('[AI Wide] Initialization complete');
     });
 
     // [核心] setItem 拦截
-    // 1. 拦截所有对 target keys 的写入
-    // 2. 只保存到 sessionStorage（当前Tab独立）
-    // 3. 保存到 Space记忆（新Tab默认值）- 仅在初始化完成后
-    // 4. 阻止写入 localStorage（防止官方API覆写）
+    // 1. 同步更新 sessionStorage（Tab 隔离）
+    // 2. 同步更新 localStorage（React UI 读取）
+    // 3. 保存到 Space 记忆（跨 Tab 同步）
     Storage.prototype.setItem = function (key, value) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
         const strValue = String(value);
 
-        // 保存到 sessionStorage（当前Tab独立，本次操作保持）
-        originalSetItem.call(sessionStorage, ssKey(k), strValue);
+        // 同步更新所有 TARGET_KEYS 到 sessionStorage 和 localStorage
+        for (const targetKey of TARGET_KEYS) {
+          originalSetItem.call(sessionStorage, ssKey(targetKey), strValue);
+          originalSetItem.call(localStorage, targetKey, strValue);
+        }
 
         // 仅在初始化完成后才保存到 Space 记忆
-        // 防止初始化期间的竞态条件
         if (isInitialized) {
           saveModelToSpaceMemory(strValue);
         } else {
-          // 初始化期间暂存模型设置
           pendingModelValue = strValue;
+          pendingSpaceId = currentSpaceId || getCurrentSpaceId();
         }
 
-        // 阻止写入 localStorage！防止官方API覆写
-        console.log('[AI Wide] Blocked official model set:', strValue.substring(0, 50));
+        console.log('[AI Wide] Model set:', strValue.substring(0, 50));
         return;
       }
       return originalSetItem.call(this, key, value);
@@ -1838,9 +1879,18 @@
     Storage.prototype.getItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        // 优先从 sessionStorage 读取（Tab独立）
         const v = originalGetItem.call(sessionStorage, ssKey(k));
         if (v != null) return v;
+
+        if (isInitialized && currentSpaceId && currentSpaceId !== 'default') {
+          const spaceMemory = getModelFromSpaceMemory(currentSpaceId);
+          if (spaceMemory != null) {
+            for (const targetKey of TARGET_KEYS) {
+              originalSetItem.call(sessionStorage, ssKey(targetKey), spaceMemory);
+            }
+            return spaceMemory;
+          }
+        }
       }
       return originalGetItem.call(this, key);
     };
@@ -1848,8 +1898,9 @@
     Storage.prototype.removeItem = function (key) {
       const k = String(key);
       if (this === localStorage && targetSet.has(k)) {
-        originalRemoveItem.call(sessionStorage, ssKey(k));
-        // 阻止删除 localStorage
+        for (const targetKey of TARGET_KEYS) {
+          originalRemoveItem.call(sessionStorage, ssKey(targetKey));
+        }
         return;
       }
       return originalRemoveItem.call(this, key);
@@ -1879,8 +1930,8 @@
 
     // 监听 URL 变化，检测 Space 切换
     function handleSpaceChange() {
-      // 确保初始化完成后再处理 Space 切换
       if (!isInitialized) {
+        console.log('[AI Wide] handleSpaceChange: not initialized');
         return;
       }
 
@@ -1889,9 +1940,8 @@
         const lastSpaceId = originalGetItem.call(sessionStorage, LAST_SPACE_KEY);
 
         if (newSpaceId !== lastSpaceId) {
-          console.log('[AI Wide] Space changed from', lastSpaceId, 'to', newSpaceId);
+          console.log('[AI Wide] Space changed:', lastSpaceId, '->', newSpaceId);
 
-          // 保存旧 Space 的当前模型到 Space 记忆
           if (lastSpaceId) {
             const currentModel = TARGET_KEYS
                 .map(k => originalGetItem.call(sessionStorage, ssKey(k)))
@@ -1901,15 +1951,14 @@
             }
           }
 
-          // 先更新 currentSpaceId，再恢复模型
-          // 这样 restoreModel 触发的 setItem 会保存到正确的新 Space
           currentSpaceId = newSpaceId;
           originalSetItem.call(sessionStorage, LAST_SPACE_KEY, newSpaceId);
 
-          // 恢复新 Space 的模型（从 Space 记忆）
-          const spaceMemory = getModelFromSpaceMemory(newSpaceId);
-          if (spaceMemory) {
-            restoreModel(spaceMemory);
+          if (newSpaceId !== 'default') {
+            const spaceMemory = getModelFromSpaceMemory(newSpaceId);
+            if (spaceMemory) {
+              restoreModel(spaceMemory);
+            }
           }
         }
       } catch (e) {
