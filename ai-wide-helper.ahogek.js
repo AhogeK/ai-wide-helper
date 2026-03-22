@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.23
+// @version      1.5.24
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -1193,8 +1193,31 @@
 
     function addRulesButton() {
       if (document.querySelector(`.${BUTTON_CLASS}`)) return;
-      const toolbarContainer = document.querySelector('.flex.items-center.justify-self-end.col-start-3.row-start-2');
+      
+      // 新的 Perplexity 输入框结构：右侧按钮容器
+      // 尝试多种可能的选择器
+      const selectors = [
+        '.flex.items-center.justify-self-end.gap-sm.col-start-2.row-start-2',
+        '[data-ask-input-container] .flex.items-center.gap-sm',
+        '.bg-raised .flex.items-center.gap-sm',
+      ];
+      
+      let toolbarContainer = null;
+      for (const selector of selectors) {
+        toolbarContainer = document.querySelector(selector);
+        if (toolbarContainer) break;
+      }
+      
+      if (!toolbarContainer) {
+        // 备用方案：查找包含 Model 按钮的容器
+        const modelButton = document.querySelector('[aria-label="Model"]');
+        if (modelButton?.parentElement) {
+          toolbarContainer = modelButton.parentElement;
+        }
+      }
+      
       if (!toolbarContainer) return;
+      
       const button = document.createElement('button');
       button.className = BUTTON_CLASS;
       button.type = 'button';
@@ -1214,13 +1237,21 @@
         e.stopPropagation();
         createModal();
       };
-      const attachButton = toolbarContainer.querySelector('[data-testid="attach-files-button"]');
-      if (attachButton?.parentElement) {
-        attachButton.parentElement.parentElement.insertBefore(button, attachButton.parentElement);
+      
+      // 插入到 Model 按钮之前
+      const modelButton = toolbarContainer.querySelector('[aria-label="Model"]');
+      if (modelButton) {
+        toolbarContainer.insertBefore(button, modelButton);
       } else {
-        const firstChild = toolbarContainer.firstElementChild;
-        if (firstChild?.nextElementSibling) toolbarContainer.insertBefore(button, firstChild.nextElementSibling);
+        // 或者插入到第一个按钮之前
+        const firstButton = toolbarContainer.querySelector('button');
+        if (firstButton) {
+          toolbarContainer.insertBefore(button, firstButton);
+        } else {
+          toolbarContainer.appendChild(button);
+        }
       }
+      
       updateButtonState();
     }
 
