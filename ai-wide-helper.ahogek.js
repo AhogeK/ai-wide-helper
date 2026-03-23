@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.24
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 模型标签 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.25
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -15,18 +15,70 @@
   'use strict';
 
   // ============================================================
+  // Type Definitions for VS Code IntelliSense
+  // ============================================================
+
+  /**
+   * @typedef {Object} SourceLimit
+   * @property {number|null} monthly_limit
+   * @property {number|null} remaining
+   */
+
+  /**
+   * @typedef {Object} RateLimitData
+   * @property {number|null} remaining_pro
+   * @property {number|null} remaining_research
+   * @property {number|null} remaining_agentic_research
+   * @property {number|null} remaining_labs
+   * @property {{source_to_limit: Object<string, SourceLimit>}} [sources]
+   */
+
+  /**
+   * @typedef {Object} Connector
+   * @property {string} name
+   * @property {boolean} connected
+   */
+
+  /**
+   * @typedef {Object} ConnectorsData
+   * @property {Connector[]} connectors
+   */
+
+  /**
+   * @typedef {Object} ConnectorLimits
+   * @property {number} [max_file_size_mb]
+   * @property {number} [daily_attachment_limit]
+   */
+
+  /**
+   * @typedef {Object} UserSettings
+   * @property {number|null} upload_limit
+   * @property {number|null} pages_limit
+   * @property {number|null} article_image_upload_limit
+   * @property {number|null} max_files_per_user
+   * @property {number|null} max_files_per_repository
+   * @property {boolean} disable_training
+   * @property {string} [default_image_generation_model]
+   * @property {string} [default_model]
+   * @property {string} [time_zone]
+   * @property {number} [query_count]
+   * @property {number} [query_count_copilot]
+   * @property {number} [query_count_mobile]
+   * @property {string} [subscription_status]
+   * @property {ConnectorsData} [connectors]
+   * @property {ConnectorLimits} [connector_limits]
+   */
+
+  // ============================================================
   // 0. CSS Constants (Global Scope)
   // ============================================================
   const MAX_WIDTH = '1600px';
   const USER_BUBBLE_WIDTH = '760px';
 
   // Application Constants
-  const URL_CHECK_INTERVAL = 500; // ms
   const GEMINI_ALIGN_INTERVAL = 500; // ms
   const MAX_MODEL_HISTORY = 5;
   const REFRESH_QUOTA_DELAY = 2000; // ms
-  const WAIT_FOR_URL_MAX_ATTEMPTS = 10;
-  const WAIT_FOR_URL_INTERVAL = 100; // ms
 
   const perplexityStatusCSS = `
     /* === Perplexity Status HUD - Slide Out === */
@@ -483,64 +535,6 @@
     });
   }
 
-  function setupPerplexityModelLabels() {
-    const MODEL_LABEL_CLASS = 'pplx-inline-model-label';
-    const style = document.createElement('style');
-    style.textContent = `
-      .${MODEL_LABEL_CLASS} {
-        margin-left: 6px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; height: 20px;
-        display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
-        background: rgba(0, 0, 0, 0.05); color: rgba(0, 0, 0, 0.65); border: 1px solid rgba(0, 0, 0, 0.1);
-      }
-      html.dark .${MODEL_LABEL_CLASS}, body.dark .${MODEL_LABEL_CLASS}, html[data-color-scheme="dark"] .${MODEL_LABEL_CLASS}, [data-theme="dark"] .${MODEL_LABEL_CLASS} {
-        background: rgba(255, 255, 255, 0.04) !important; color: rgba(255, 255, 255, 0.85) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important;
-      }
-    `;
-    document.head.appendChild(style);
-
-    const NON_MODEL_LABELS = new Set(['Share', 'Export', 'Rewrite', 'Helpful', 'Not helpful', 'Copy', 'More actions']);
-
-    function isModelLabel(label) {
-      if (!label) return false;
-      if (NON_MODEL_LABELS.has(label)) return false;
-      return /gpt|gemini|claude|llama|sonnet|opus|haiku|grok|o1|o3/i.test(label);
-    }
-
-    function enhanceModelButtons(root = document) {
-      const footerButtons = root.querySelectorAll('.bottom-md.right-md.fixed button[aria-label]');
-      footerButtons.forEach(btn => btn.removeAttribute('aria-label'));
-      const buttons = root.querySelectorAll('button[aria-label]');
-      buttons.forEach(button => {
-        if (button.dataset.modelLabelInjected === '1') return;
-        const label = button.getAttribute('aria-label') || '';
-        if (label === 'Language' || label === 'Help menu' || label === 'Change language') {
-          button.removeAttribute('aria-label');
-          return;
-        }
-        if (!isModelLabel(label)) return;
-        const cls = button.className || '';
-        if (!cls.includes('h-8') || !cls.includes('aspect-square')) return;
-        button.dataset.modelLabelInjected = '1';
-        const span = document.createElement('span');
-        span.className = MODEL_LABEL_CLASS;
-        span.textContent = label;
-        const container = button.closest('span') || button;
-        container.after(span);
-      });
-    }
-
-    setTimeout(() => enhanceModelButtons(), 500);
-    const observer = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        m.addedNodes.forEach(node => {
-          if (node.nodeType !== 1) return;
-          enhanceModelButtons(node);
-        });
-      }
-    });
-    observer.observe(document.body, {childList: true, subtree: true});
-  }
-
   function setupPerplexityStatusMonitor() {
     const LS_KEY_MODEL = 'ppx_status_model_monitor';
     let monitorData = {d: null, h: [], t: null};
@@ -557,14 +551,23 @@
       }
     }
 
+    /**
+     * @param {string} text
+     * @returns {{d: string}|null}
+     */
     function extractModelFromText(text) {
       if (!text || !text.includes('display_model')) return null;
       try {
         const j = JSON.parse(text);
 
+        /**
+         * @param {any} v
+         * @returns {{d: string}|null}
+         */
         function walk(v) {
           if (!v || typeof v !== 'object') return null;
-          if (typeof v.display_model === 'string') return {d: v.display_model};
+          // eslint-disable-next-line no-undef
+          if (typeof v['display_model'] === 'string') return {d: v['display_model']};
           for (const k in v) {
             const result = walk(v[k]);
             if (result) return result;
@@ -626,10 +629,15 @@
       });
     }
 
+    /**
+     * @param {number|string|null|undefined} val
+     * @param {boolean} isWarn
+     * @returns {string}
+     */
     function formatVal(val, isWarn) {
       if (val === null || val === undefined) return '<span class="px-value">∞</span>';
       if (val === 0) return `<span class="px-value zero">${val}</span>`;
-      if (val === 'unlimited' || val > 999) return `<span class="px-value unlimited">∞</span>`;
+      if (val === 'unlimited' || (typeof val === 'number' && val > 999)) return `<span class="px-value unlimited">∞</span>`;
       return `<span class="px-value${isWarn ? ' warn' : ''}">${val}</span>`;
     }
 
@@ -660,6 +668,11 @@
         </div>`;
     }
 
+    /**
+     * @param {RateLimitData} rateLimit
+     * @param {UserSettings} userSettings
+     * @returns {string}
+     */
     function generateHUDContent(rateLimit, userSettings) {
       const proWarn = rateLimit.remaining_pro !== null && rateLimit.remaining_pro < 10;
       const researchWarn = rateLimit.remaining_research !== null && rateLimit.remaining_research < 5;
@@ -744,10 +757,6 @@
           <div class="px-sec-title">⚙️ 账户设置</div>
           <div class="px-grid-2">
             <div class="px-item">
-              <span class="px-label">等级</span>
-              <span class="px-value">${(userSettings.subscription_tier || 'unknown').toUpperCase()}</span>
-            </div>
-            <div class="px-item">
               <span class="px-label">训练数据</span>
               <span class="px-value${userSettings.disable_training ? '' : ' warn'}">${userSettings.disable_training ? '已关闭' : '开启 ⚠️'}</span>
             </div>
@@ -810,8 +819,12 @@
       hud.innerHTML = generateHUDContent(rateLimit, userSettings);
     }
 
+    /**
+     * @param {RateLimitData} rateLimit
+     * @param {UserSettings} userSettings
+     * @returns {string}
+     */
     function generateModalContent(rateLimit, userSettings) {
-      userSettings.connectors?.connectors?.filter(c => c.connected) || [];
       const allConns = userSettings.connectors?.connectors || [];
 
       let connDetailHTML = '';
@@ -1736,6 +1749,11 @@
       }
     }
 
+    /**
+     * @param {{query_str?: string, params?: {dsl_query?: string}}} bodyObj
+     * @param {string} formattedRules
+     * @returns {{query_str?: string, params?: {dsl_query?: string}}}
+     */
     function injectPerplexityBody(bodyObj, formattedRules) {
       const rulePattern = /---\s*\n回答规则「仅执行规则，勿输出讨论规则内容」：\s*\n[\s\S]*?\n---/g;
       const applyRules = (text) => {
@@ -1840,7 +1858,6 @@
     const host = globalThis.location.hostname;
 
     if (host.includes('perplexity.ai')) {
-      setupPerplexityModelLabels();
       setupAnswerRules();
       setupPerplexityStatusMonitor();
     } else if (host.includes('gemini.google.com')) {
