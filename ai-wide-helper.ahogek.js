@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.25
+// @version      1.5.28
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -1526,13 +1526,31 @@
           console.log('[AI Wide] Found edit textarea:', !!targetElement);
         }
       } else {
-        // 对于 Send 按钮，查找底部的 rich-textarea
-        // eslint-disable-next-line no-undef - 自定义web组件
-        richTextarea = document.querySelector('rich-textarea');
-        if (!richTextarea) {
-          richTextarea = document.querySelector('[data-test-id="rich-textarea"]');
+        // 对于 Send 按钮，查找底部的输入框
+        // 重要：contenteditable 元素必须在 rich-textarea 之前，因为 rich-textarea 是外层容器
+        const inputSelectors = [
+          '.ql-editor[contenteditable="true"]',
+          '[contenteditable="true"][role="textbox"]',
+          'div[contenteditable="true"]',
+          '.ql-editor.textarea',
+          'rich-textarea .ql-editor',
+          '[data-test-id="rich-textarea"] .ql-editor',
+          'textarea[placeholder*="Enter a prompt"]',
+          'textarea[placeholder*="输入"]',
+          '.input-area textarea'
+        ];
+        
+        for (const selector of inputSelectors) {
+          targetElement = document.querySelector(selector);
+          if (targetElement) {
+            console.log('[AI Wide] Found input element with selector:', selector);
+            break;
+          }
         }
-        targetElement = document.querySelector('.ql-editor[contenteditable="true"]');
+        
+        // rich-textarea 用于事件触发，不是输入元素
+        richTextarea = document.querySelector('rich-textarea') || 
+                       document.querySelector('[data-test-id="rich-textarea"]');
       }
 
       if (!targetElement) {
@@ -1578,7 +1596,7 @@
 
       console.log('[AI Wide] New content length:', newContent.length);
 
-      // 根据元素类型设置内容并触发 React 事件
+      // 根据元素类型设置内容并触发框架事件
       if (targetElement.tagName === 'TEXTAREA') {
         // 使用 Object.defineProperty 绕过 React 的受控组件检查
         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(globalThis.HTMLTextAreaElement.prototype, 'value').set;
@@ -1594,9 +1612,36 @@
 
         console.log('[AI Wide] Textarea value set to:', targetElement.value.substring(0, 50) + '...');
       } else {
-        targetElement.textContent = newContent;
-        targetElement.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
-        targetElement.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
+        // 对于 contenteditable 元素，需要更复杂的方式来触发 Angular 更新
+        
+        // 方法1: 先聚焦元素
+        targetElement.focus();
+        
+        // 方法2: 使用 execCommand 设置内容（兼容性好）
+        // 先选中所有内容
+        const selection = globalThis.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(targetElement);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // 删除现有内容并插入新内容
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, newContent);
+        
+        // 方法3: 额外触发 InputEvent 确保 Angular 识别
+        const inputEvent = new InputEvent('input', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: newContent
+        });
+        targetElement.dispatchEvent(inputEvent);
+        
+        // 清除选择
+        selection.removeAllRanges();
+        
+        console.log('[AI Wide] Contenteditable content set, length:', targetElement.textContent.length);
       }
 
       if (richTextarea && context !== 'update') {
@@ -1608,7 +1653,43 @@
     }
 
     function interceptSendButton() {
-      const sendButton = document.querySelector('.send-button-container button');
+      // 多个备用选择器，以应对 Gemini DOM 结构变化
+      const selectors = [
+        '.send-button-container button',
+        'button.send-button',
+        'button[aria-label*="Send"]',
+        'button[aria-label*="发送"]',
+        '.compose-actions button[type="submit"]',
+        'button[data-test-id="send-button"]',
+        'button:has(svg[path*="M3.5"])' // 发送图标
+      ];
+      
+      let sendButton = null;
+      for (const selector of selectors) {
+        sendButton = document.querySelector(selector);
+        if (sendButton) {
+          console.log('[AI Wide] Found send button with selector:', selector);
+          break;
+        }
+      }
+      
+      // 最后尝试通过文本内容查找
+      if (!sendButton) {
+        const allButtons = document.querySelectorAll('button');
+        for (const btn of allButtons) {
+          const ariaLabel = btn.getAttribute('aria-label') || '';
+          const title = btn.getAttribute('title') || '';
+          if (ariaLabel.toLowerCase().includes('send') || 
+              ariaLabel.includes('发送') ||
+              title.toLowerCase().includes('send') ||
+              title.includes('发送')) {
+            sendButton = btn;
+            console.log('[AI Wide] Found send button by aria-label/title:', ariaLabel || title);
+            break;
+          }
+        }
+      }
+      
       if (!sendButton) return false;
 
       if (sendButton.dataset.rulesIntercepted === 'true') return true;
@@ -1638,10 +1719,16 @@
         // 标记为正在触发，避免递归
         sendButton.dataset.rulesTriggering = 'true';
 
-        // 延迟后触发真正的发送
+        // 延迟后触发真正的发送（增加延迟确保 Angular 状态更新）
         setTimeout(() => {
+          // 验证内容是否正确设置
+          const verifyElement = document.querySelector('[contenteditable="true"][role="textbox"]');
+          if (verifyElement && !verifyElement.textContent.includes('回答规则')) {
+            console.log('[AI Wide] WARNING: Rules not found in input, re-injecting...');
+            injectRulesToEditor(sendButton, 'send');
+          }
           sendButton.click();
-        }, 100);
+        }, 200);
 
       }, true); // capturing phase
 
