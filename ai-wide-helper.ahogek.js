@@ -1506,12 +1506,7 @@
       const storageKey = getCurrentStorageKey();
       const rules = getRawRules();
 
-      console.log('[AI Wide] Storage key:', storageKey);
-      console.log('[AI Wide] Rules preview:', rules.substring(0, 50) + '...');
-      console.log('[AI Wide] Rules length:', rules.length);
-
       if (!rules || !rules.trim()) {
-        console.log('[AI Wide] No rules to inject');
         return false;
       }
 
@@ -1523,7 +1518,6 @@
         const editContainer = button.closest('user-query-content');
         if (editContainer) {
           targetElement = editContainer.querySelector('textarea.mat-mdc-input-element');
-          console.log('[AI Wide] Found edit textarea:', !!targetElement);
         }
       } else {
         // 对于 Send 按钮，查找底部的输入框
@@ -1543,7 +1537,6 @@
         for (const selector of inputSelectors) {
           targetElement = document.querySelector(selector);
           if (targetElement) {
-            console.log('[AI Wide] Found input element with selector:', selector);
             break;
           }
         }
@@ -1554,7 +1547,6 @@
       }
 
       if (!targetElement) {
-        console.log('[AI Wide] No input element found for context:', context);
         return false;
       }
 
@@ -1565,8 +1557,6 @@
       } else {
         currentContent = targetElement.textContent || targetElement.innerText || '';
       }
-
-      console.log('[AI Wide] Current content length:', currentContent.length);
 
       const ruleMarker = '回答规则「仅执行规则，勿输出讨论规则内容」';
       const hasExistingRules = currentContent.includes(ruleMarker);
@@ -1587,14 +1577,11 @@
         const oldRuleContent = oldRuleMatch ? oldRuleMatch[1].trim() : '';
         const newRuleContent = rules.trim();
         if (oldRuleContent === newRuleContent) {
-          console.log('[AI Wide] Rules unchanged, skipping injection');
           return false;
         }
       }
 
       const newContent = cleanedContent + formattedRules;
-
-      console.log('[AI Wide] New content length:', newContent.length);
 
       // 根据元素类型设置内容并触发框架事件
       if (targetElement.tagName === 'TEXTAREA') {
@@ -1609,8 +1596,6 @@
         // 触发 change 事件
         const changeEvent = new Event('change', {bubbles: true, cancelable: true});
         targetElement.dispatchEvent(changeEvent);
-
-        console.log('[AI Wide] Textarea value set to:', targetElement.value.substring(0, 50) + '...');
       } else {
         // 对于 contenteditable 元素，需要更复杂的方式来触发 Angular 更新
         
@@ -1640,15 +1625,12 @@
         
         // 清除选择
         selection.removeAllRanges();
-        
-        console.log('[AI Wide] Contenteditable content set, length:', targetElement.textContent.length);
       }
 
       if (richTextarea && context !== 'update') {
         richTextarea.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
       }
 
-      console.log('[AI Wide] Rules injected in', context, 'mode, total length:', newContent.length);
       return true;
     }
 
@@ -1668,7 +1650,6 @@
       for (const selector of selectors) {
         sendButton = document.querySelector(selector);
         if (sendButton) {
-          console.log('[AI Wide] Found send button with selector:', selector);
           break;
         }
       }
@@ -1684,7 +1665,6 @@
               title.toLowerCase().includes('send') ||
               title.includes('发送')) {
             sendButton = btn;
-            console.log('[AI Wide] Found send button by aria-label/title:', ariaLabel || title);
             break;
           }
         }
@@ -1724,7 +1704,6 @@
           // 验证内容是否正确设置
           const verifyElement = document.querySelector('[contenteditable="true"][role="textbox"]');
           if (verifyElement && !verifyElement.textContent.includes('回答规则')) {
-            console.log('[AI Wide] WARNING: Rules not found in input, re-injecting...');
             injectRulesToEditor(sendButton, 'send');
           }
           sendButton.click();
@@ -1732,7 +1711,6 @@
 
       }, true); // capturing phase
 
-      console.log('[AI Wide] Send button listener attached (capturing)');
       return true;
     }
 
@@ -1768,7 +1746,6 @@
 
       }, true); // capturing phase
 
-      console.log('[AI Wide] Update button listener attached (capturing)');
       return true;
     }
 
@@ -1778,7 +1755,6 @@
 
       const tryIntercept = () => {
         if (attempts >= maxAttempts) {
-          console.log('[AI Wide] Max interception attempts reached');
           return;
         }
 
@@ -1808,7 +1784,6 @@
 
   // 2.1 Global Network Interceptor
   (function installNetworkInterceptor() {
-    console.log('[AI Widescreen] Initializing Unified Network Interceptor...');
     const originalFetch = globalThis.fetch;
 
     function getFetchUrl(input) {
@@ -1865,10 +1840,9 @@
           let bodyObj = JSON.parse(init.body);
           bodyObj = injectPerplexityBody(bodyObj, rules);
           init.body = JSON.stringify(bodyObj);
-          console.log('[AI Widescreen] Perplexity Rules Injected');
         }
       } catch (e) {
-        console.error('[AI Wide] PPLX Fetch Handler Error:', e);
+        // Silently ignore parse errors
       }
     }
 
@@ -1893,7 +1867,6 @@
 
       return responsePromise;
     };
-    console.log('[AI Widescreen] Unified Interceptor Installed.');
   })();
 
   // 2.3 Style Injection (Immediate)
@@ -1941,7 +1914,6 @@
   // 3. UI Initialization (Wait for Body)
   // ============================================================
   function initUI() {
-    console.log('[AI Widescreen] Body ready, initializing UI (Buttons/Modals)...');
     const host = globalThis.location.hostname;
 
     if (host.includes('perplexity.ai')) {
