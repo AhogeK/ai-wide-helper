@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.28
+// @version      1.5.29
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -1767,12 +1767,13 @@
 
       tryIntercept();
 
-      // 持续监视 Update 按钮（因为编辑模式是动态出现的）
-      const updateButtonObserver = new MutationObserver(() => {
+      // 持续监视 Update 按钮和 Send 按钮（SPA 导航后会重新创建）
+      const buttonObserver = new MutationObserver(() => {
+        interceptSendButton();
         interceptUpdateButton();
       });
 
-      updateButtonObserver.observe(document.body, {childList: true, subtree: true});
+      buttonObserver.observe(document.body, {childList: true, subtree: true});
     }
 
     setupInterceptObserver();
