@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.29
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.31
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑 + 修复模型按钮选择器；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -1222,8 +1222,10 @@
       }
       
       if (!toolbarContainer) {
-        // 备用方案：查找包含 Model 按钮的容器
-        const modelButton = document.querySelector('[aria-label="Model"]');
+        // 备用方案：查找包含模型选择按钮的容器
+        // Perplexity 的模型按钮 aria-label 会显示具体模型名称（如 "GPT-5.4 Thinking"）
+        // 所以不能用固定的 "Model"，而是查找有 aria-haspopup="menu" 的按钮
+        const modelButton = document.querySelector('button[aria-haspopup="menu"][aria-label]');
         if (modelButton?.parentElement) {
           toolbarContainer = modelButton.parentElement;
         }
@@ -1251,18 +1253,15 @@
         createModal();
       };
       
-      // 插入到 Model 按钮之前
-      const modelButton = toolbarContainer.querySelector('[aria-label="Model"]');
+      // 插入到模型选择按钮之前
+      // 使用 aria-haspopup="menu" 来识别模型选择按钮（因为 aria-label 是动态的模型名称）
+      const modelButton = toolbarContainer.querySelector('button[aria-haspopup="menu"]');
       if (modelButton) {
-        toolbarContainer.insertBefore(button, modelButton);
+        // modelButton 可能在嵌套 div 中，需要在其父元素上调用 insertBefore
+        modelButton.parentElement.insertBefore(button, modelButton);
       } else {
-        // 或者插入到第一个按钮之前
-        const firstButton = toolbarContainer.querySelector('button');
-        if (firstButton) {
-          toolbarContainer.insertBefore(button, firstButton);
-        } else {
-          toolbarContainer.appendChild(button);
-        }
+        // 或者插入到容器最前面
+        toolbarContainer.insertBefore(button, toolbarContainer.firstChild);
       }
       
       updateButtonState();
