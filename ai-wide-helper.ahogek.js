@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.31
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 HTML 提取 Space ID 逻辑 + 修复模型按钮选择器；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.32
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -477,7 +477,6 @@
   // 共享的 Space ID 提取函数
   function getCurrentSpaceId() {
     const pathname = globalThis.location.pathname;
-    // /spaces 列表页不是具体 Space，返回 default
     if (pathname === '/spaces' || pathname === '/spaces/') {
       return 'default';
     }
@@ -486,13 +485,16 @@
       const fullId = urlMatch[1];
       return fullId.includes('-') ? fullId.split('-').pop() : fullId;
     }
-    const spaceLink = document.querySelector('a[href*="/spaces/"]');
-    if (spaceLink) {
-      const href = spaceLink.getAttribute('href');
-      const hrefMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(href);
-      if (hrefMatch) {
-        const fullId = hrefMatch[1];
-        return fullId.includes('-') ? fullId.split('-').pop() : fullId;
+    const spaceLinks = document.querySelectorAll('a[href^="/spaces/"]');
+    for (const link of spaceLinks) {
+      const rect = link.getBoundingClientRect();
+      if (rect.top < 100 && rect.width > 0) {
+        const href = link.getAttribute('href');
+        const hrefMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(href);
+        if (hrefMatch) {
+          const fullId = hrefMatch[1];
+          return fullId.includes('-') ? fullId.split('-').pop() : fullId;
+        }
       }
     }
     return 'default';
@@ -1207,31 +1209,17 @@
     function addRulesButton() {
       if (document.querySelector(`.${BUTTON_CLASS}`)) return;
       
-      // 新的 Perplexity 输入框结构：右侧按钮容器
-      // 尝试多种可能的选择器
-      const selectors = [
-        '.flex.items-center.justify-self-end.gap-sm.col-start-2.row-start-2',
-        '[data-ask-input-container] .flex.items-center.gap-sm',
-        '.bg-raised .flex.items-center.gap-sm',
-      ];
+      const askInput = document.querySelector('#ask-input');
+      if (!askInput) return;
       
-      let toolbarContainer = null;
-      for (const selector of selectors) {
-        toolbarContainer = document.querySelector(selector);
-        if (toolbarContainer) break;
-      }
+      const inputContainer = askInput.closest('[data-ask-input-container]') || askInput.parentElement?.parentElement?.parentElement;
+      if (!inputContainer) return;
       
-      if (!toolbarContainer) {
-        // 备用方案：查找包含模型选择按钮的容器
-        // Perplexity 的模型按钮 aria-label 会显示具体模型名称（如 "GPT-5.4 Thinking"）
-        // 所以不能用固定的 "Model"，而是查找有 aria-haspopup="menu" 的按钮
-        const modelButton = document.querySelector('button[aria-haspopup="menu"][aria-label]');
-        if (modelButton?.parentElement) {
-          toolbarContainer = modelButton.parentElement;
-        }
-      }
+      const modelButton = inputContainer.querySelector('button[aria-haspopup="menu"], button[aria-haspopup="dialog"]');
+      if (!modelButton) return;
       
-      if (!toolbarContainer) return;
+      const toolbarContainer = modelButton.parentElement;
+      if (!toolbarContainer || toolbarContainer.querySelector(`.${BUTTON_CLASS}`)) return;
       
       const button = document.createElement('button');
       button.className = BUTTON_CLASS;
@@ -1252,18 +1240,9 @@
         e.stopPropagation();
         createModal();
       };
-      
-      // 插入到模型选择按钮之前
-      // 使用 aria-haspopup="menu" 来识别模型选择按钮（因为 aria-label 是动态的模型名称）
-      const modelButton = toolbarContainer.querySelector('button[aria-haspopup="menu"]');
-      if (modelButton) {
-        // modelButton 可能在嵌套 div 中，需要在其父元素上调用 insertBefore
-        modelButton.parentElement.insertBefore(button, modelButton);
-      } else {
-        // 或者插入到容器最前面
-        toolbarContainer.insertBefore(button, toolbarContainer.firstChild);
-      }
-      
+
+      modelButton.parentElement.insertBefore(button, modelButton);
+
       updateButtonState();
     }
 
