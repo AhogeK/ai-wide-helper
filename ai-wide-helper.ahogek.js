@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.32
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.33
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://gemini.google.com/*
@@ -477,10 +477,11 @@
   // 共享的 Space ID 提取函数
   function getCurrentSpaceId() {
     const pathname = globalThis.location.pathname;
-    if (pathname === '/spaces' || pathname === '/spaces/') {
+    if (pathname === '/spaces' || pathname === '/spaces/' || pathname === '/projects' || pathname === '/projects/') {
       return 'default';
     }
-    const urlMatch = /\/spaces\/([a-zA-Z0-9_.-]+)/.exec(pathname);
+    // /spaces/ 与 /projects/ 的 {slug}_{id} 格式相同,统一用 split('-').pop() 提取,保证 key 与既有数据/chat 页 DOM 兜底一致
+    const urlMatch = /\/(?:spaces|projects)\/([a-zA-Z0-9_.-]+)/.exec(pathname);
     if (urlMatch) {
       const fullId = urlMatch[1];
       return fullId.includes('-') ? fullId.split('-').pop() : fullId;
