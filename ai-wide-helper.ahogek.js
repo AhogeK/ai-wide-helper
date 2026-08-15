@@ -1,18 +1,43 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.35
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.36
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
+// @match        https://render.pplxusercontent.com/*
 // @match        https://gemini.google.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=perplexity.ai
 // @grant        none
 // @run-at       document-start
+// @all-frames   true
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  // ============================================================
+  // Iframe/Renderer 专用分支：只修复 body 字体，跳过主逻辑
+  // 覆盖值用 initial（浏览器默认字体），不做任何指定
+  // ============================================================
+  const host = globalThis.location.hostname;
+  const isPplxFamily = host.includes('perplexity.ai') || host.includes('pplxusercontent.com');
+  if (window.top !== window.self || host.includes('pplxusercontent.com')) {
+    if (isPplxFamily) {
+      const injectIframeFontFix = () => {
+        if (document.getElementById('ai-widescreen-iframe-style')) return;
+        const style = document.createElement('style');
+        style.id = 'ai-widescreen-iframe-style';
+        style.textContent = 'body { font-family: initial !important; }';
+        (document.head || document.documentElement).appendChild(style);
+      };
+      injectIframeFontFix();
+      if (!document.head) {
+        document.addEventListener('DOMContentLoaded', injectIframeFontFix, { once: true });
+      }
+    }
+    return;
+  }
 
   // ============================================================
   // Type Definitions for VS Code IntelliSense
