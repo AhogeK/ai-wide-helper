@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.36
-// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
+// @version      1.5.37
+// @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 清空官方 --pplx-sans 自定义字体 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
 // @match        https://render.pplxusercontent.com/*
@@ -428,6 +428,7 @@
     /* === Chinese Font Fix === */
     /* 修复中文字体显示问题：覆盖 cjk 复合变量，将简体字体排在日文字体之前 */
     :root {
+      --pplx-sans: ;
       --pplx-ja-sans: ;
       --pplx-cjk-sans: var(--pplx-zh-hans-sans), var(--pplx-zh-hant-sans), var(--pplx-zh-hk-sans), var(--pplx-zh-mo-sans), var(--pplx-ja-sans), var(--pplx-ko-sans);
       --pplx-cjk-serif: var(--pplx-zh-hans-serif), var(--pplx-zh-hant-serif), var(--pplx-zh-hk-serif), var(--pplx-zh-mo-serif), var(--pplx-ja-serif), var(--pplx-ko-serif);
