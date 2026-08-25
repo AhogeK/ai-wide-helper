@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.37
+// @version      1.5.38
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 清空官方 --pplx-sans 自定义字体 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -101,9 +101,15 @@
   const USER_BUBBLE_WIDTH = '760px';
 
   // Application Constants
-  const GEMINI_ALIGN_INTERVAL = 500; // ms
-  const MAX_MODEL_HISTORY = 5;
-  const REFRESH_QUOTA_DELAY = 2000; // ms
+  // [DISABLED 2026-08-25] 侧边状态面板（HUD）整体停用：
+  // 官方 /rest/rate-limit/all 与 /rest/user/settings 已不再按会话返回配额数据（已登录与无痕响应一致），
+  // remaining_* 字段统一清零、remaining_detail.kind 为 "not_provided"，面板数据失去意义。
+  // 恢复方法：1) 取消 initUI() 中 setupPerplexityStatusMonitor() 的调用注释；
+  //           2) 取消下方 perplexityCSS 拼接处的注释；
+  //           3) 取消网络拦截器中 ppx:refresh-quota 事件派发的注释；
+  //           4) 取消本段 MAX_MODEL_HISTORY / REFRESH_QUOTA_DELAY 常量注释。
+  // const MAX_MODEL_HISTORY = 5;
+  // const REFRESH_QUOTA_DELAY = 2000; // ms
 
   const perplexityStatusCSS = `
     /* === Perplexity Status HUD - Slide Out === */
@@ -464,8 +470,7 @@
       opacity: 0.1 !important; transition: opacity 0.3s ease-in-out !important; z-index: 50; pointer-events: auto !important;
     }
     div.bottom-md.right-md.fixed:hover { opacity: 1 !important; }
-    div.bottom-md.right-md.fixed > div.flex { flex-direction: row !important; }
-  ` + perplexityStatusCSS;
+  `; // [DISABLED 2026-08-25] 原为 ` + perplexityStatusCSS（侧窗 CSS 停用，恢复时改回）
 
   const geminiCSS = `
     .chat-history-scroll-container { width: 100% !important; max-width: 100% !important; }
@@ -571,6 +576,10 @@
   }
 
   function setupPerplexityStatusMonitor() {
+  // ============================================================
+  // [DISABLED 2026-08-25] 侧边状态面板（HUD）：官方配额接口已停用，本函数不再被调用
+  // 代码整体保留，恢复时取消 initUI() 中的调用注释即可
+  // ============================================================
     const LS_KEY_MODEL = 'ppx_status_model_monitor';
     let monitorData = {d: null, h: [], t: null};
     try {
@@ -1868,14 +1877,14 @@
 
       const responsePromise = originalFetch.call(this, input, init);
 
-      // 只在发送聊天请求时刷新配额，避免其他 POST 请求触发过多调用
-      if (isPost && urlStr?.includes('perplexity_ask')) {
-        responsePromise.then(() => {
-          setTimeout(() => {
-            globalThis.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
-          }, REFRESH_QUOTA_DELAY);
-        });
-      }
+      // [DISABLED 2026-08-25] 侧窗已停用，不再派发配额刷新事件
+      // if (isPost && urlStr?.includes('perplexity_ask')) {
+      //   responsePromise.then(() => {
+      //     setTimeout(() => {
+      //       globalThis.dispatchEvent(new CustomEvent('ppx:refresh-quota'));
+      //     }, REFRESH_QUOTA_DELAY);
+      //   });
+      // }
 
       return responsePromise;
     };
@@ -1930,7 +1939,8 @@
 
     if (host.includes('perplexity.ai')) {
       setupAnswerRules();
-      setupPerplexityStatusMonitor();
+      // [DISABLED 2026-08-25] 侧边状态面板停用（官方配额接口已无数据）
+      // setupPerplexityStatusMonitor();
     } else if (host.includes('gemini.google.com')) {
       const isGeminiChat = () => {
         const path = globalThis.location.pathname;
