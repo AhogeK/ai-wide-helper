@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.38
+// @version      1.5.40
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 清空官方 --pplx-sans 自定义字体 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -98,7 +98,6 @@
   // 0. CSS Constants (Global Scope)
   // ============================================================
   const MAX_WIDTH = '1600px';
-  const USER_BUBBLE_WIDTH = '760px';
 
   // Application Constants
   // [DISABLED 2026-08-25] 侧边状态面板（HUD）整体停用：
@@ -485,9 +484,21 @@
     .user-query-container > div[style*="flex"], user-query-content > div[style*="flex"] { display: none !important; }
     user-query-content::after { content: ""; display: table; clear: both; }
 
+    /* === Gemini 2026-09 新版内容宽度体系适配（enable-extended-and-xl-grid） ===
+       Gemini 现把对话内容子元素限制为 max-width: 708px（媒体类 740px）+ margin-inline: auto 居中；
+       表格则改用 .table-content 的 padding-inline: max(0px, 50% - 354px) 维持 708px 内容宽。
+       与插件的全宽意图冲突：正文不变宽、表格被 padding 推右并溢出容器（约 400px），故中和该机制。 */
+    .markdown > :not(#_),
+    .markdown-main-panel > :not(#_) {
+      max-width: 100% !important;
+    }
+
     /* === Table Widescreen Support === */
-    table-block, .table-block, .table-content {
+    table-block, .table-block {
       width: 100% !important; max-width: 100% !important;
+    }
+    .table-content {
+      width: auto !important; max-width: 100% !important; padding-inline: 0 !important;
     }
     .table-block table, .table-content table {
       width: 100% !important; min-width: unset !important;
@@ -538,7 +549,8 @@
     return 'default';
   }
 
-  function forceGeminiRightAlign() {
+  // 新版 Gemini 的用户消息由原生 prompt bubble 自带右对齐，旧 .user-query-bubble-container 已不存在
+  function forceGeminiFullWidth() {
     const queryContents = document.querySelectorAll('user-query-content.user-query-container');
     queryContents.forEach(el => {
       if (el.style.display !== 'block' || el.style.width !== '100%') {
@@ -547,19 +559,6 @@
         el.style.removeProperty('flex-direction');
         el.style.removeProperty('justify-content');
         el.style.removeProperty('align-items');
-      }
-      const bubble = el.querySelector('.user-query-bubble-container');
-      if (bubble) {
-        if (bubble.style.float !== 'right') {
-          bubble.style.setProperty('float', 'right', 'important');
-          bubble.style.setProperty('max-width', USER_BUBBLE_WIDTH, 'important');
-          bubble.style.setProperty('display', 'block', 'important');
-          bubble.style.setProperty('text-align', 'left', 'important');
-          bubble.style.setProperty('margin-left', '0', 'important');
-          bubble.style.setProperty('margin-right', '0', 'important');
-          bubble.style.removeProperty('width');
-          bubble.style.removeProperty('flex');
-        }
       }
       let parent = el.parentElement;
       while (parent) {
@@ -1947,10 +1946,10 @@
         return /\/app\/[\w-]+/.test(path) || /\/gem\/[\w-]+\/[\w-]+/.test(path);
       };
       const geminiInterval = setInterval(() => {
-        if (isGeminiChat()) forceGeminiRightAlign();
+        if (isGeminiChat()) forceGeminiFullWidth();
       }, GEMINI_ALIGN_INTERVAL);
       const geminiObserver = new MutationObserver(() => {
-        if (isGeminiChat()) forceGeminiRightAlign();
+        if (isGeminiChat()) forceGeminiFullWidth();
       });
       geminiObserver.observe(document.body, {childList: true, subtree: true});
 
