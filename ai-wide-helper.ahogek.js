@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.40
+// @version      1.5.42
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 清空官方 --pplx-sans 自定义字体 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -100,6 +100,7 @@
   const MAX_WIDTH = '1600px';
 
   // Application Constants
+  const GEMINI_ALIGN_INTERVAL = 500; // ms
   // [DISABLED 2026-08-25] 侧边状态面板（HUD）整体停用：
   // 官方 /rest/rate-limit/all 与 /rest/user/settings 已不再按会话返回配额数据（已登录与无痕响应一致），
   // remaining_* 字段统一清零、remaining_detail.kind 为 "not_provided"，面板数据失去意义。
@@ -492,6 +493,16 @@
     .markdown-main-panel > :not(#_) {
       max-width: 100% !important;
     }
+
+    /* 模型回复操作栏（点赞/复制等）：解除 708px 居中限制，全宽并贴右（与用户消息操作栏对齐方式一致） */
+    .response-container-footer { max-width: 100% !important; margin-inline: 0 !important; }
+    message-actions { max-width: 100% !important; width: 100% !important; margin-inline: 0 !important; }
+    .buttons-container-v2 { justify-content: flex-end !important; }
+    .buttons-container-v2 > .spacer { display: none !important; }
+
+    /* 思考指示器（thinking overlay）与思考内容：解除 708px 居中限制，全宽贴左 */
+    thinking-overlay { max-width: 100% !important; margin-inline: 0 !important; }
+    .thoughts-container { max-width: 100% !important; margin-inline: 0 !important; }
 
     /* === Table Widescreen Support === */
     table-block, .table-block {
