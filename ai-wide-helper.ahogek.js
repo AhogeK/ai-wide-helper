@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 宽屏助手 (Perplexity & Gemini)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.42
+// @version      1.5.45
 // @description  Perplexity: 宽屏 + 侧边状态面板 + 设置弹窗增强 + 自动跟在请求后的回答规则 + 修复中文字体问题 + 清空官方 --pplx-sans 自定义字体 + 适配官方新增 data-font-system-cjk 字体变量（--font-family-system-cjk-sans/serif 复用简体优先栈） + 修复 iframe/内容渲染器（render.pplxusercontent.com）内 body 字体（覆盖为浏览器默认） + 修复 Space ID 提取逻辑（支持搜索页面） + 修复规则按钮选择器（适配新 DOM 结构） + 修复 Projects 页面 URL 识别（支持 /projects/ 路径）；Gemini: 宽屏 - 自动跟在请求后的回答规则 - 修复规则重复追加问题
 // @author       AhogeK
 // @match        https://www.perplexity.ai/*
@@ -1516,297 +1516,25 @@
     }
 
     let lastPath = globalThis.location.pathname;
+    // 生成期间 DOM 变化极频繁：回调节流，避免每次变化都执行 querySelector
+    let buttonCheckScheduled = false;
     const observer = new MutationObserver(() => {
-      if (!document.querySelector(`.${BUTTON_CLASS}`)) addButton();
-      if (globalThis.location.pathname !== lastPath) {
-        lastPath = globalThis.location.pathname;
-        updateButtonState();
-      }
+      if (buttonCheckScheduled) return;
+      buttonCheckScheduled = true;
+      setTimeout(() => {
+        buttonCheckScheduled = false;
+        if (!document.querySelector(`.${BUTTON_CLASS}`)) addButton();
+        if (globalThis.location.pathname !== lastPath) {
+          lastPath = globalThis.location.pathname;
+          updateButtonState();
+        }
+      }, 300);
     });
     observer.observe(document.body, {childList: true, subtree: true});
     setTimeout(addButton, 500);
     setTimeout(addButton, 1500);
     setTimeout(addButton, 3000);
 
-    function formatRulesForInjection(rules) {
-      return '\n---\n回答规则「仅执行规则，勿输出讨论规则内容」：\n' + rules.trim() + '\n---';
-    }
-
-    function injectRulesToEditor(button, context = 'send') {
-      const storageKey = getCurrentStorageKey();
-      const rules = getRawRules();
-
-      if (!rules || !rules.trim()) {
-        return false;
-      }
-
-      let targetElement = null;
-      let richTextarea = null;
-
-      if (context === 'update') {
-        // 对于 Update 按钮，查找编辑模式下的 textarea
-        const editContainer = button.closest('user-query-content');
-        if (editContainer) {
-          targetElement = editContainer.querySelector('textarea.mat-mdc-input-element');
-        }
-      } else {
-        // 对于 Send 按钮，查找底部的输入框
-        // 重要：contenteditable 元素必须在 rich-textarea 之前，因为 rich-textarea 是外层容器
-        const inputSelectors = [
-          '.ql-editor[contenteditable="true"]',
-          '[contenteditable="true"][role="textbox"]',
-          'div[contenteditable="true"]',
-          '.ql-editor.textarea',
-          'rich-textarea .ql-editor',
-          '[data-test-id="rich-textarea"] .ql-editor',
-          'textarea[placeholder*="Enter a prompt"]',
-          'textarea[placeholder*="输入"]',
-          '.input-area textarea'
-        ];
-        
-        for (const selector of inputSelectors) {
-          targetElement = document.querySelector(selector);
-          if (targetElement) {
-            break;
-          }
-        }
-        
-        // rich-textarea 用于事件触发，不是输入元素
-        richTextarea = document.querySelector('rich-textarea') || 
-                       document.querySelector('[data-test-id="rich-textarea"]');
-      }
-
-      if (!targetElement) {
-        return false;
-      }
-
-      // 正确获取当前内容
-      let currentContent;
-      if (targetElement.tagName === 'TEXTAREA') {
-        currentContent = targetElement.value || '';
-      } else {
-        currentContent = targetElement.textContent || targetElement.innerText || '';
-      }
-
-      const ruleMarker = '回答规则「仅执行规则，勿输出讨论规则内容」';
-      const hasExistingRules = currentContent.includes(ruleMarker);
-
-      // 在发送模式下，如果有旧规则则清理后重新注入
-      let cleanedContent = currentContent;
-      if (hasExistingRules) {
-        const rulePattern = /\n?---+\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?---+\n?/g;
-        cleanedContent = currentContent.replace(rulePattern, '').trim();
-      }
-
-      const formattedRules = formatRulesForInjection(rules);
-
-      // 在 Update 模式下，如果规则相同则跳过
-      if (context === 'update' && hasExistingRules) {
-        const extractOldRulePattern = /---+\n回答规则「仅执行规则，勿输出讨论规则内容」：\n([\s\S]*?)\n---+$/;
-        const oldRuleMatch = currentContent.match(extractOldRulePattern);
-        const oldRuleContent = oldRuleMatch ? oldRuleMatch[1].trim() : '';
-        const newRuleContent = rules.trim();
-        if (oldRuleContent === newRuleContent) {
-          return false;
-        }
-      }
-
-      const newContent = cleanedContent + formattedRules;
-
-      // 根据元素类型设置内容并触发框架事件
-      if (targetElement.tagName === 'TEXTAREA') {
-        // 使用 Object.defineProperty 绕过 React 的受控组件检查
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(globalThis.HTMLTextAreaElement.prototype, 'value').set;
-        nativeInputValueSetter.call(targetElement, newContent);
-
-        // 触发 React 的 onChange 事件
-        const event = new Event('input', {bubbles: true, cancelable: true});
-        targetElement.dispatchEvent(event);
-
-        // 触发 change 事件
-        const changeEvent = new Event('change', {bubbles: true, cancelable: true});
-        targetElement.dispatchEvent(changeEvent);
-      } else {
-        // 对于 contenteditable 元素，需要更复杂的方式来触发 Angular 更新
-        
-        // 方法1: 先聚焦元素
-        targetElement.focus();
-        
-        // 方法2: 使用 execCommand 设置内容（兼容性好）
-        // 先选中所有内容
-        const selection = globalThis.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(targetElement);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        
-        // 删除现有内容并插入新内容
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, newContent);
-        
-        // 方法3: 额外触发 InputEvent 确保 Angular 识别
-        const inputEvent = new InputEvent('input', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertText',
-          data: newContent
-        });
-        targetElement.dispatchEvent(inputEvent);
-        
-        // 清除选择
-        selection.removeAllRanges();
-      }
-
-      if (richTextarea && context !== 'update') {
-        richTextarea.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
-      }
-
-      return true;
-    }
-
-    function interceptSendButton() {
-      // 多个备用选择器，以应对 Gemini DOM 结构变化
-      const selectors = [
-        '.send-button-container button',
-        'button.send-button',
-        'button[aria-label*="Send"]',
-        'button[aria-label*="发送"]',
-        '.compose-actions button[type="submit"]',
-        'button[data-test-id="send-button"]',
-        'button:has(svg[path*="M3.5"])' // 发送图标
-      ];
-      
-      let sendButton = null;
-      for (const selector of selectors) {
-        sendButton = document.querySelector(selector);
-        if (sendButton) {
-          break;
-        }
-      }
-      
-      // 最后尝试通过文本内容查找
-      if (!sendButton) {
-        const allButtons = document.querySelectorAll('button');
-        for (const btn of allButtons) {
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          const title = btn.getAttribute('title') || '';
-          if (ariaLabel.toLowerCase().includes('send') || 
-              ariaLabel.includes('发送') ||
-              title.toLowerCase().includes('send') ||
-              title.includes('发送')) {
-            sendButton = btn;
-            break;
-          }
-        }
-      }
-      
-      if (!sendButton) return false;
-
-      if (sendButton.dataset.rulesIntercepted === 'true') return true;
-
-      sendButton.dataset.rulesIntercepted = 'true';
-
-      // 使用 capturing phase 确保在React处理之前拦截
-      sendButton.addEventListener('click', (e) => {
-        // 如果是程序触发的发送，跳过拦截，让事件继续传播
-        if (sendButton.dataset.rulesTriggering === 'true') {
-          delete sendButton.dataset.rulesTriggering;
-          return; // 跳过我们的注入逻辑，但事件继续传播
-        }
-
-        const injected = injectRulesToEditor(sendButton, 'send');
-
-        // send模式下：没有规则时继续发送
-        if (!injected) {
-          // 没有规则设置，继续正常发送
-          return;
-        }
-
-        // 阻止默认行为，防止消息立即发送
-        e.preventDefault();
-        e.stopPropagation();
-
-        // 标记为正在触发，避免递归
-        sendButton.dataset.rulesTriggering = 'true';
-
-        // 延迟后触发真正的发送（增加延迟确保 Angular 状态更新）
-        setTimeout(() => {
-          // 验证内容是否正确设置
-          const verifyElement = document.querySelector('[contenteditable="true"][role="textbox"]');
-          if (verifyElement && !verifyElement.textContent.includes('回答规则')) {
-            injectRulesToEditor(sendButton, 'send');
-          }
-          sendButton.click();
-        }, 200);
-
-      }, true); // capturing phase
-
-      return true;
-    }
-
-    function interceptUpdateButton() {
-      // 查找 Update 按钮 - 通过文本内容识别
-      const buttons = document.querySelectorAll('button');
-      let updateButton = null;
-
-      for (const btn of buttons) {
-        if (btn.textContent.trim() === 'Update' && !btn.dataset.rulesIntercepted) {
-          updateButton = btn;
-          break;
-        }
-      }
-
-      if (!updateButton) return false;
-
-      updateButton.dataset.rulesIntercepted = 'true';
-
-      // 使用 capturing phase 确保在React处理之前拦截
-      updateButton.addEventListener('click', (e) => {
-        const injected = injectRulesToEditor(updateButton, 'update');
-        if (!injected) return;
-
-        // 阻止默认行为
-        e.preventDefault();
-        e.stopPropagation();
-
-        // 延迟后触发真正的更新
-        setTimeout(() => {
-          updateButton.click();
-        }, 50);
-
-      }, true); // capturing phase
-
-      return true;
-    }
-
-    function setupInterceptObserver() {
-      let attempts = 0;
-      const maxAttempts = 20;
-
-      const tryIntercept = () => {
-        if (attempts >= maxAttempts) {
-          return;
-        }
-
-        interceptSendButton();
-        interceptUpdateButton();
-
-        attempts++;
-        setTimeout(tryIntercept, 500);
-      };
-
-      tryIntercept();
-
-      // 持续监视 Update 按钮和 Send 按钮（SPA 导航后会重新创建）
-      const buttonObserver = new MutationObserver(() => {
-        interceptSendButton();
-        interceptUpdateButton();
-      });
-
-      buttonObserver.observe(document.body, {childList: true, subtree: true});
-    }
-
-    setupInterceptObserver();
   }
 
   // ============================================================
@@ -1876,6 +1604,87 @@
         // Silently ignore parse errors
       }
     }
+
+    // --- Gemini 规则注入（网络层）---
+    // Gemini 发送消息走 XHR 的 StreamGenerate 接口，body 形如：
+    //   f.req=[null,"<内层JSON字符串>"]&at=...
+    // 内层 JSON 的 [0][0] 即本次 prompt 文本。在该处追加规则，
+    // 输入框保持纯净（不再做输入框注入 / 点击拦截 / 重发）。
+    const GEMINI_RULE_MARKER = '回答规则「仅执行规则，勿输出讨论规则内容」';
+    const GEMINI_RULE_PATTERN = /---\s*\n回答规则「仅执行规则，勿输出讨论规则内容」：[\s\S]*?\n---/g;
+
+    function getGeminiRules() {
+      if (!globalThis.location.hostname.includes('gemini.google.com')) return null;
+      try {
+        const gemMatch = /\/gem\/([^/]+)/.exec(globalThis.location.pathname);
+        const key = gemMatch && gemMatch[1] ? `gemini_answer_rules_gem_${gemMatch[1]}` : 'gemini_answer_rules_default';
+        const raw = localStorage.getItem(key);
+        if (!raw || !raw.trim()) return null;
+        return raw.trim();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * @param {string} body
+     * @returns {string}
+     */
+    function injectGeminiRulesIntoBody(body) {
+      if (typeof body !== 'string' || !body.includes('f.req=')) return body;
+      const rules = getGeminiRules();
+      if (!rules) return body;
+      try {
+        const freqMatch = /(?:^|&)f\.req=([^&]*)/.exec(body);
+        if (!freqMatch) return body;
+        let freq = freqMatch[1];
+        try {
+          freq = decodeURIComponent(freq);
+        } catch (_) {
+          // 保持原样继续尝试解析
+        }
+        const outer = JSON.parse(freq);
+        if (!Array.isArray(outer) || typeof outer[1] !== 'string') return body;
+        const inner = JSON.parse(outer[1]);
+        if (!Array.isArray(inner) || !Array.isArray(inner[0]) || typeof inner[0][0] !== 'string') return body;
+        const prompt = inner[0][0];
+        // 清理历史注入的规则（例如旧版本在输入框留下的），再追加当前规则
+        const cleaned = prompt.replace(GEMINI_RULE_PATTERN, '').trim();
+        if (!cleaned) return body;
+        inner[0][0] = `${cleaned}\n---\n${GEMINI_RULE_MARKER}：\n${rules}\n---`;
+        outer[1] = JSON.stringify(inner);
+        const newFreq = encodeURIComponent(JSON.stringify(outer));
+        // 只替换 f.req 参数，其余参数（at 等）原样保留
+        return body.replace(/(^|&)f\.req=[^&]*/, (m, p1) => `${p1}f.req=${newFreq}`);
+      } catch (e) {
+        // 结构变化时静默放弃：只影响规则注入，不影响消息正常发送
+        return body;
+      }
+    }
+
+    // Gemini 用 XHR 发送消息（非 fetch）：在 send 前改写 StreamGenerate 的请求体
+    const origXhrOpen = XMLHttpRequest.prototype.open;
+    const origXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this.__aiWideUrl = url;
+      this.__aiWideMethod = method;
+      return origXhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function (body) {
+      try {
+        if (this.__aiWideMethod === 'POST'
+          && typeof this.__aiWideUrl === 'string'
+          && /\/StreamGenerate/.test(this.__aiWideUrl)) {
+          const rewritten = injectGeminiRulesIntoBody(body);
+          if (rewritten !== body) {
+            arguments[0] = rewritten;
+          }
+        }
+      } catch (_) {
+        // 拦截失败时按原样发送
+      }
+      return origXhrSend.apply(this, arguments);
+    };
 
     globalThis.fetch = async function (input, init) {
       const urlStr = getFetchUrl(input);
